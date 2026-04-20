@@ -9,7 +9,6 @@ The UG Advisor Frontend is now integrated with the Auntie Aba RAG backend.
 From `/Users/nissi/auntie_aba_rag/`:
 
 ```bash
-export GEMINI_API_KEY="AIzaSyAzitOS18Pqq6uyUZ-9NS9En-oxhFyOB0s"
 source venv/bin/activate
 uvicorn api:app --host 127.0.0.1 --port 8000
 ```
