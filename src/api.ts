@@ -1,9 +1,15 @@
-const API_BASE =
-  (import.meta.env.VITE_API_BASE as string) ||
-  "https://lordofcodess--ug-handbook-rag-fastapi-app.modal.run";
-const TTS_BASE =
-  (import.meta.env.VITE_TTS_BASE as string) ||
-  "https://lordofcodess--auntie-aba-api-fastapi-app.modal.run";
+const env = import.meta.env as Record<string, string | undefined>;
+
+function requireEnv(name: "VITE_API_BASE" | "VITE_TTS_BASE") {
+  const value = env[name]?.trim();
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+const API_BASE = requireEnv("VITE_API_BASE");
+const TTS_BASE = requireEnv("VITE_TTS_BASE");
 
 export type ChatMsg = { role: "user" | "assistant"; content: string };
 
