@@ -106,6 +106,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [ttsLoadingIdx, setTtsLoadingIdx] = useState<number | null>(null);
   const [ttsPlayingIdx, setTtsPlayingIdx] = useState<number | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -140,6 +141,31 @@ export default function App() {
     }
     setTtsPlayingIdx(null);
     setTtsLoadingIdx(null);
+  }
+
+  async function copyMessage(idx: number, content: string) {
+    const text = stripMarkdown(content) || content;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } catch {
+        setError("Copy failed");
+      }
+      document.body.removeChild(ta);
+    }
+    setCopiedIdx(idx);
+    window.setTimeout(
+      () => setCopiedIdx((cur) => (cur === idx ? null : cur)),
+      1200,
+    );
   }
 
   async function toggleTts(idx: number, content: string) {
@@ -447,22 +473,32 @@ export default function App() {
                         m.content
                       )}
                     </div>
-                    {m.role === "assistant" && (
+                    <div className="msg-actions">
                       <button
                         type="button"
-                        className={`tts-btn ${ttsPlayingIdx === i ? "playing" : ""} ${ttsLoadingIdx === i ? "loading" : ""}`}
-                        onClick={() => toggleTts(i, m.content)}
-                        title={
-                          ttsPlayingIdx === i
-                            ? "Stop"
-                            : ttsLoadingIdx === i
-                              ? "Loading…"
-                              : "Read aloud"
-                        }
+                        className={`copy-btn ${copiedIdx === i ? "copied" : ""}`}
+                        onClick={() => copyMessage(i, m.content)}
+                        title={copiedIdx === i ? "Copied" : "Copy"}
                       >
-                        {ttsLoadingIdx === i ? "…" : ttsPlayingIdx === i ? "⏹" : "🔊"}
+                        {copiedIdx === i ? "✓" : "📋"}
                       </button>
-                    )}
+                      {m.role === "assistant" && (
+                        <button
+                          type="button"
+                          className={`tts-btn ${ttsPlayingIdx === i ? "playing" : ""} ${ttsLoadingIdx === i ? "loading" : ""}`}
+                          onClick={() => toggleTts(i, m.content)}
+                          title={
+                            ttsPlayingIdx === i
+                              ? "Stop"
+                              : ttsLoadingIdx === i
+                                ? "Loading…"
+                                : "Read aloud"
+                          }
+                        >
+                          {ttsLoadingIdx === i ? "…" : ttsPlayingIdx === i ? "⏹" : "🔊"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
