@@ -86,6 +86,39 @@ function formatWhen(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
+const ICON = {
+  copy: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  ),
+  check: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  speaker: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </svg>
+  ),
+  stop: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="5" y="5" width="14" height="14" rx="2" />
+    </svg>
+  ),
+  loading: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.2" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+      <circle cx="19" cy="12" r="1.2" fill="currentColor" />
+    </svg>
+  ),
+};
+
 const EXAMPLES = [
   "What are the general requirements to do a major minor in Computer Science and Statistics?",
   "Who is the vice chancellor of the University of Ghana?",
@@ -476,16 +509,17 @@ export default function App() {
                     <div className="msg-actions">
                       <button
                         type="button"
-                        className={`copy-btn ${copiedIdx === i ? "copied" : ""}`}
+                        className={`icon-btn copy-btn ${copiedIdx === i ? "copied" : ""}`}
                         onClick={() => copyMessage(i, m.content)}
                         title={copiedIdx === i ? "Copied" : "Copy"}
+                        aria-label={copiedIdx === i ? "Copied" : "Copy message"}
                       >
-                        {copiedIdx === i ? "✓" : "📋"}
+                        {copiedIdx === i ? ICON.check : ICON.copy}
                       </button>
                       {m.role === "assistant" && (
                         <button
                           type="button"
-                          className={`tts-btn ${ttsPlayingIdx === i ? "playing" : ""} ${ttsLoadingIdx === i ? "loading" : ""}`}
+                          className={`icon-btn tts-btn ${ttsPlayingIdx === i ? "playing" : ""} ${ttsLoadingIdx === i ? "loading" : ""}`}
                           onClick={() => toggleTts(i, m.content)}
                           title={
                             ttsPlayingIdx === i
@@ -494,8 +528,17 @@ export default function App() {
                                 ? "Loading…"
                                 : "Read aloud"
                           }
+                          aria-label={
+                            ttsPlayingIdx === i
+                              ? "Stop playback"
+                              : "Read message aloud"
+                          }
                         >
-                          {ttsLoadingIdx === i ? "…" : ttsPlayingIdx === i ? "⏹" : "🔊"}
+                          {ttsLoadingIdx === i
+                            ? ICON.loading
+                            : ttsPlayingIdx === i
+                              ? ICON.stop
+                              : ICON.speaker}
                         </button>
                       )}
                     </div>
