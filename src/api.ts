@@ -77,6 +77,21 @@ export function analyzeTranscript(file: File, notes?: string) {
   return fpost<TranscriptAnalyzeResp>("/transcript/analyze", fd);
 }
 
+export const GOOGLE_MAPS_KEY = (env.VITE_GOOGLE_MAPS_KEY ?? "").trim();
+
+export type RewriteStepsReq = {
+  raw_steps: string[];
+  from_name: string;
+  to_name: string;
+  distance_label: string;
+  duration_minutes: number;
+};
+
+export type RewriteStepsResp = { steps: string[] };
+
+export const rewriteSteps = (body: RewriteStepsReq) =>
+  jpost<RewriteStepsResp>("/directions/rewrite-steps", body);
+
 export async function ttsSpeak(
   text: string,
   language: string = "English",

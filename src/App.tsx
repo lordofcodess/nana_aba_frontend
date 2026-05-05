@@ -8,7 +8,16 @@ import {
   ttsSpeak,
   type ChatMsg,
 } from "./api";
+import DirectionsTab from "./DirectionsTab";
+import {
+  emptyThread as emptyDirThread,
+  loadThreads as loadDirThreads,
+  saveThreads as saveDirThreads,
+  type DirectionsThread,
+} from "./directionsStorage";
 import "./App.css";
+
+type Tab = "chat" | "directions";
 
 type Thread = {
   id: string;
@@ -137,6 +146,12 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>("chat");
+  const [dirThreads, setDirThreads] = useState<DirectionsThread[]>(() => {
+    const loaded = loadDirThreads();
+    return loaded.length ? loaded : [emptyDirThread()];
+  });
+  const [dirActiveId, setDirActiveId] = useState<string>(dirThreads[0].id);
   const [ttsLoadingIdx, setTtsLoadingIdx] = useState<number | null>(null);
   const [ttsPlayingIdx, setTtsPlayingIdx] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -153,6 +168,36 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
   }, [threads]);
+
+  useEffect(() => {
+    saveDirThreads(dirThreads);
+  }, [dirThreads]);
+
+  function newDirThread() {
+    const t = emptyDirThread();
+    setDirThreads((prev) => [t, ...prev]);
+    setDirActiveId(t.id);
+    setSidebarOpen(false);
+  }
+
+  function selectDirThread(id: string) {
+    setSidebarOpen(false);
+    if (id === dirActiveId) return;
+    setDirActiveId(id);
+  }
+
+  function deleteDirThread(id: string) {
+    setDirThreads((prev) => {
+      const filtered = prev.filter((t) => t.id !== id);
+      if (filtered.length === 0) {
+        const fresh = emptyDirThread();
+        setDirActiveId(fresh.id);
+        return [fresh];
+      }
+      if (id === dirActiveId) setDirActiveId(filtered[0].id);
+      return filtered;
+    });
+  }
 
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" });
@@ -403,7 +448,7 @@ export default function App() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask AI a question or make a request."
+          placeholder="Ask Nana Aba a question"
           disabled={busy}
         />
       </div>
@@ -432,32 +477,65 @@ export default function App() {
       )}
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="sidebar-head">
-          <div className="brand">Nana Aba</div>
-          <button className="new-btn" onClick={newThread}>+ New</button>
+          <div className="brand">
+            <img src="/logo.png" alt="" className="brand-logo" />
+            <span>{tab === "directions" ? "Directions" : "Nana Aba"}</span>
+          </div>
+          <button
+            className="new-btn"
+            onClick={tab === "directions" ? newDirThread : newThread}
+          >
+            + New
+          </button>
         </div>
         <div className="thread-list">
-          {sortedThreads.map((t) => (
-            <div
-              key={t.id}
-              className={`thread-item ${t.id === activeId ? "active" : ""}`}
-              onClick={() => selectThread(t.id)}
-            >
-              <div className="thread-main">
-                <div className="thread-title">{t.title}</div>
-                <div className="thread-when">{formatWhen(t.updatedAt)}</div>
-              </div>
-              <button
-                className="thread-del"
-                title="Delete"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteThread(t.id);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {tab === "directions"
+            ? [...dirThreads]
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .map((t) => (
+                  <div
+                    key={t.id}
+                    className={`thread-item ${t.id === dirActiveId ? "active" : ""}`}
+                    onClick={() => selectDirThread(t.id)}
+                  >
+                    <div className="thread-main">
+                      <div className="thread-title">{t.title}</div>
+                      <div className="thread-when">{formatWhen(t.updatedAt)}</div>
+                    </div>
+                    <button
+                      className="thread-del"
+                      title="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteDirThread(t.id);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))
+            : sortedThreads.map((t) => (
+                <div
+                  key={t.id}
+                  className={`thread-item ${t.id === activeId ? "active" : ""}`}
+                  onClick={() => selectThread(t.id)}
+                >
+                  <div className="thread-main">
+                    <div className="thread-title">{t.title}</div>
+                    <div className="thread-when">{formatWhen(t.updatedAt)}</div>
+                  </div>
+                  <button
+                    className="thread-del"
+                    title="Delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteThread(t.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
         </div>
       </aside>
 
@@ -475,8 +553,31 @@ export default function App() {
             +
           </button>
         </header>
-        {empty ? (
+        <nav className="app-tabs" aria-label="Sections">
+          <button
+            className={tab === "chat" ? "active" : ""}
+            onClick={() => setTab("chat")}
+          >
+            Chat
+          </button>
+          <button
+            className={tab === "directions" ? "active" : ""}
+            onClick={() => setTab("directions")}
+          >
+            Directions
+          </button>
+        </nav>
+        {tab === "directions" ? (
+          <DirectionsTab
+            threads={dirThreads}
+            setThreads={setDirThreads}
+            activeId={dirActiveId}
+            setActiveId={setDirActiveId}
+            onOpenSidebar={() => setSidebarOpen(true)}
+          />
+        ) : empty ? (
           <section className="hero">
+            <img src="/logo.png" alt="Nana Aba" className="hero-logo" />
             <h1 className="greet">
               {greeting()}
               <br />
@@ -496,6 +597,9 @@ export default function App() {
             <main className="chat" ref={scrollerRef}>
               {messages.map((m, i) => (
                 <div key={i} className={`msg ${m.role}`}>
+                  {m.role === "assistant" && (
+                    <img src="/logo.png" alt="" className="msg-avatar" />
+                  )}
                   <div className="msg-col">
                     <div className="bubble">
                       {m.role === "assistant" ? (
@@ -547,6 +651,7 @@ export default function App() {
               ))}
               {busy && (
                 <div className="msg assistant">
+                  <img src="/logo.png" alt="" className="msg-avatar" />
                   <div className="bubble typing">
                     <span className="thinking-label">Thinking</span>
                     <span className="dots">
