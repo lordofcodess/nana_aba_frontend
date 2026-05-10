@@ -19,10 +19,13 @@ export type Source = {
   department?: string | null;
 };
 
+export type ChatMode = "fast" | "thinking";
+
 export type RAGChatResp = {
   query: string;
   answer: string;
   sources: Source[];
+  mode?: ChatMode | null;
 };
 
 export type VoiceChatResp = RAGChatResp & { transcript: string };
@@ -57,8 +60,12 @@ async function fpost<T>(path: string, fd: FormData): Promise<T> {
 
 export const health = () => fetch(`${API_BASE}/health`).then((r) => r.json());
 
-export const ragChat = (query: string, history: ChatMsg[] = [], topK = 10) =>
-  jpost<RAGChatResp>("/chat", { query, top_k: topK, history });
+export const ragChat = (
+  query: string,
+  history: ChatMsg[] = [],
+  mode: ChatMode = "fast",
+  topK?: number,
+) => jpost<RAGChatResp>("/chat", { query, history, mode, ...(topK ? { top_k: topK } : {}) });
 
 export const ragRetrieve = (query: string, topK = 10) =>
   jpost<RetrieveResp>("/retrieve", { query, top_k: topK });

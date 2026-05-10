@@ -6,6 +6,7 @@ import {
   voiceChat,
   analyzeTranscript,
   ttsSpeak,
+  type ChatMode,
   type ChatMsg,
 } from "./api";
 import DirectionsTab from "./DirectionsTab";
@@ -27,6 +28,12 @@ type Thread = {
 };
 
 const STORAGE_KEY = "nana_aba_threads_v1";
+const MODE_KEY = "nana_aba_mode_v1";
+
+function loadMode(): ChatMode {
+  const v = localStorage.getItem(MODE_KEY);
+  return v === "thinking" ? "thinking" : "fast";
+}
 
 function greeting() {
   const h = new Date().getHours();
@@ -96,6 +103,18 @@ function formatWhen(ts: number): string {
 }
 
 const ICON = {
+  panel: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+    </svg>
+  ),
+  newChat: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  ),
   copy: (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="9" y="9" width="11" height="11" rx="2" />
@@ -145,8 +164,12 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.innerWidth >= 761;
+  });
   const [tab, setTab] = useState<Tab>("chat");
+  const [mode, setMode] = useState<ChatMode>(() => loadMode());
   const [dirThreads, setDirThreads] = useState<DirectionsThread[]>(() => {
     const loaded = loadDirThreads();
     return loaded.length ? loaded : [emptyDirThread()];
@@ -172,6 +195,10 @@ export default function App() {
   useEffect(() => {
     saveDirThreads(dirThreads);
   }, [dirThreads]);
+
+  useEffect(() => {
+    localStorage.setItem(MODE_KEY, mode);
+  }, [mode]);
 
   function newDirThread() {
     const t = emptyDirThread();
@@ -324,7 +351,7 @@ export default function App() {
     mutateActive((prev) => [...prev, { role: "user", content: message }]);
     setBusy(true);
     try {
-      const resp = await ragChat(message, historySnapshot);
+      const resp = await ragChat(message, historySnapshot, mode);
       mutateActive((prev) => [...prev, { role: "assistant", content: resp.answer }]);
     } catch (e) {
       setError((e as Error).message);
@@ -453,6 +480,20 @@ export default function App() {
         />
       </div>
       <div className="composer-bottom">
+        <div className={`pill mode-pill ${mode === "thinking" ? "mode-thinking" : "mode-fast"}`}>
+          <span aria-hidden="true">{mode === "fast" ? "⚡" : "🧠"}</span>
+          <select
+            className="mode-select"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as ChatMode)}
+            disabled={busy}
+            aria-label="Answer mode"
+          >
+            <option value="fast">Fast</option>
+            <option value="thinking">Thinking</option>
+          </select>
+          <span aria-hidden="true" className="mode-caret">▾</span>
+        </div>
         <label className="pill">
           📎 Analyze transcript
           <input
@@ -482,12 +523,23 @@ export default function App() {
             <span>{tab === "directions" ? "Directions" : "Nana Aba"}</span>
           </div>
           <button
-            className="new-btn"
-            onClick={tab === "directions" ? newDirThread : newThread}
+            type="button"
+            className="sidebar-collapse"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Hide sidebar"
+            title="Hide sidebar"
           >
-            + New
+            {ICON.panel}
           </button>
         </div>
+        <button
+          type="button"
+          className="new-chat-row"
+          onClick={tab === "directions" ? newDirThread : newThread}
+        >
+          {ICON.newChat}
+          <span>New chat</span>
+        </button>
         <div className="thread-list">
           {tab === "directions"
             ? [...dirThreads]
@@ -554,6 +606,18 @@ export default function App() {
           </button>
         </header>
         <nav className="app-tabs" aria-label="Sections">
+          {!sidebarOpen && (
+            <button
+              type="button"
+              className="sidebar-toggle"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Show sidebar"
+              title="Show sidebar"
+            >
+              <img src="/logo.png" alt="" className="sidebar-toggle-logo" />
+              <span className="sidebar-toggle-icon">{ICON.panel}</span>
+            </button>
+          )}
           <button
             className={tab === "chat" ? "active" : ""}
             onClick={() => setTab("chat")}
