@@ -11,7 +11,14 @@ function requireEnv(name: "VITE_API_BASE" | "VITE_TTS_BASE") {
 const API_BASE = requireEnv("VITE_API_BASE");
 const TTS_BASE = requireEnv("VITE_TTS_BASE");
 
-export type ChatMsg = { role: "user" | "assistant"; content: string };
+export type Citation = { uri: string; title: string };
+
+export type ChatMsg = {
+  role: "user" | "assistant";
+  content: string;
+  citations?: Citation[];
+  via_web?: boolean;
+};
 
 export type Source = {
   source_file?: string | null;
@@ -26,6 +33,8 @@ export type RAGChatResp = {
   answer: string;
   sources: Source[];
   mode?: ChatMode | null;
+  citations?: Citation[];
+  via_web?: boolean;
 };
 
 export type VoiceChatResp = RAGChatResp & { transcript: string };

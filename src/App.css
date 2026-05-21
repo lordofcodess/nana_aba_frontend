@@ -57,10 +57,13 @@ html, body, #root {
   min-width: 0;
 }
 .brand-logo {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  object-fit: cover;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: #fff;
+  padding: 2px;
+  border: 1px solid var(--border);
   flex-shrink: 0;
 }
 .brand span {
@@ -207,10 +210,13 @@ html, body, #root {
 .hero-logo {
   width: 112px;
   height: 112px;
-  border-radius: 0;
+  border-radius: 50%;
   object-fit: contain;
-  margin-bottom: 8px;
-  box-shadow: none;
+  background: #fff;
+  padding: 10px;
+  border: 1px solid var(--border);
+  margin-bottom: 16px;
+  box-shadow: 0 6px 24px -10px rgba(0, 0, 0, 0.12);
 }
 .greet {
   font-size: 36px;
@@ -360,13 +366,15 @@ html, body, #root {
 .msg.user { justify-content: flex-end; }
 .msg.assistant { justify-content: flex-start; }
 .msg-avatar {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  object-fit: cover;
+  object-fit: contain;
   flex-shrink: 0;
   margin-top: 2px;
   background: #fff;
+  padding: 2px;
+  border: 1px solid var(--border);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 .msg-col {
@@ -433,6 +441,51 @@ html, body, #root {
 .msg.user .bubble { white-space: pre-wrap; }
 .bubble > :first-child { margin-top: 0; }
 .bubble > :last-child { margin-bottom: 0; }
+
+.via-web-badge {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
+.msg-citations {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 100%;
+}
+.msg-citations summary {
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  user-select: none;
+  display: inline-block;
+}
+.msg-citations summary:hover { background: var(--accent-soft); color: var(--accent); }
+.msg-citations[open] summary {
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.msg-citations ul {
+  list-style: disc;
+  margin: 0 0 4px 0;
+  padding-left: 22px;
+}
+.msg-citations li { margin: 2px 0; line-height: 1.4; }
+.msg-citations a {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--muted);
+  word-break: break-all;
+}
+.msg-citations a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .bubble p { margin: 0 0 8px; }
 .bubble h1, .bubble h2, .bubble h3, .bubble h4 {
   margin: 12px 0 6px;
@@ -577,7 +630,7 @@ html, body, #root {
   .app-tabs .sidebar-toggle { display: none; }
 
   .hero { padding: 16px; }
-  .hero-logo { width: 84px; height: 84px; border-radius: 0; margin-bottom: 8px; }
+  .hero-logo { width: 84px; height: 84px; padding: 8px; margin-bottom: 12px; }
   .greet { font-size: 26px; margin-bottom: 24px; }
   .examples { grid-template-columns: 1fr; margin-top: 16px; }
   .composer { border-radius: 14px; padding: 10px 12px; }
@@ -625,10 +678,13 @@ html, body, #root {
 }
 .app-tabs .sidebar-toggle:hover { background: #f3f3f3; }
 .sidebar-toggle-logo {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  object-fit: cover;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: #fff;
+  padding: 2px;
+  border: 1px solid var(--border);
   display: block;
   transition: opacity 0.15s ease;
 }

@@ -35,13 +35,6 @@ function loadMode(): ChatMode {
   return v === "thinking" ? "thinking" : "fast";
 }
 
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good Morning";
-  if (h < 17) return "Good Afternoon";
-  return "Good Evening";
-}
-
 function newThreadId() {
   return "t_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
@@ -352,7 +345,15 @@ export default function App() {
     setBusy(true);
     try {
       const resp = await ragChat(message, historySnapshot, mode);
-      mutateActive((prev) => [...prev, { role: "assistant", content: resp.answer }]);
+      mutateActive((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: resp.answer,
+          citations: resp.citations ?? [],
+          via_web: resp.via_web ?? false,
+        },
+      ]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -435,7 +436,12 @@ export default function App() {
           mutateActive((prev) => [
             ...prev,
             { role: "user", content: resp.transcript },
-            { role: "assistant", content: resp.answer },
+            {
+              role: "assistant",
+              content: resp.answer,
+              citations: resp.citations ?? [],
+              via_web: resp.via_web ?? false,
+            },
           ]);
         } catch (err) {
           setError((err as Error).message);
@@ -643,9 +649,7 @@ export default function App() {
           <section className="hero">
             <img src="/logo.png" alt="Nana Aba" className="hero-logo" />
             <h1 className="greet">
-              {greeting()}
-              <br />
-              What's on <span className="accent">your mind?</span>
+              Welcome to <span className="accent">Nana Aba AI</span>
             </h1>
             {composer}
             <div className="examples">
@@ -673,7 +677,26 @@ export default function App() {
                       ) : (
                         m.content
                       )}
+                      {m.role === "assistant" && m.via_web && (
+                        <span className="via-web-badge" title="Answered from the live UG website">
+                          from UG website
+                        </span>
+                      )}
                     </div>
+                    {m.role === "assistant" && m.citations && m.citations.length > 0 && (
+                      <details className="msg-citations">
+                        <summary>Sources ({m.citations.length})</summary>
+                        <ul>
+                          {m.citations.map((c) => (
+                            <li key={c.uri}>
+                              <a href={c.uri} target="_blank" rel="noopener noreferrer">
+                                {c.title}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
                     <div className="msg-actions">
                       <button
                         type="button"
