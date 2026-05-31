@@ -27,6 +27,7 @@ type Thread = {
   updatedAt: number;
 };
 
+const NANA_ABA_LOGO = "/logo.png";
 const STORAGE_KEY = "nana_aba_threads_v1";
 const MODE_KEY = "nana_aba_mode_v1";
 
@@ -626,7 +627,7 @@ export default function App() {
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="sidebar-head">
           <div className="brand">
-            <img src="/logo.png" alt="" className="brand-logo" />
+            <img src={NANA_ABA_LOGO} alt="" className="brand-logo" />
             <span>{tab === "directions" ? "Directions" : "Nana Aba"}</span>
           </div>
           <button
@@ -721,7 +722,7 @@ export default function App() {
               aria-label="Show sidebar"
               title="Show sidebar"
             >
-              <img src="/logo.png" alt="" className="sidebar-toggle-logo" />
+              <img src={NANA_ABA_LOGO} alt="" className="sidebar-toggle-logo" />
               <span className="sidebar-toggle-icon">{ICON.panel}</span>
             </button>
           )}
@@ -748,7 +749,7 @@ export default function App() {
           />
         ) : empty ? (
           <section className="hero">
-            <img src="/logo.png" alt="Nana Aba" className="hero-logo" />
+            <img src={NANA_ABA_LOGO} alt="Nana Aba" className="hero-logo" />
             <h1 className="greet">
               Welcome to <span className="accent">Nana Aba AI</span>
             </h1>
@@ -767,7 +768,7 @@ export default function App() {
               {messages.map((m, i) => (
                 <div key={i} className={`msg ${m.role}`}>
                   {m.role === "assistant" && (
-                    <img src="/logo.png" alt="" className="msg-avatar" />
+                    <img src={NANA_ABA_LOGO} alt="" className="msg-avatar" />
                   )}
                   <div className="msg-col">
                     <div className="bubble">
@@ -839,7 +840,7 @@ export default function App() {
               ))}
               {busy && (
                 <div className="msg assistant">
-                  <img src="/logo.png" alt="" className="msg-avatar" />
+                  <img src={NANA_ABA_LOGO} alt="" className="msg-avatar" />
                   <div className="bubble typing">
                     <span className="thinking-label">Thinking</span>
                     <span className="dots">

@@ -210,13 +210,12 @@ html, body, #root {
 .hero-logo {
   width: 112px;
   height: 112px;
-  border-radius: 50%;
   object-fit: contain;
-  background: #fff;
-  padding: 10px;
-  border: 1px solid var(--border);
+  background: transparent;
+  padding: 0;
+  border: 0;
   margin-bottom: 16px;
-  box-shadow: 0 6px 24px -10px rgba(0, 0, 0, 0.12);
+  box-shadow: none;
 }
 .greet {
   font-size: 36px;
