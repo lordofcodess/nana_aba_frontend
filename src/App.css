@@ -237,14 +237,58 @@ html, body, #root {
   width: 100%;
   max-width: 680px;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 20px;
   background: #fff;
   box-shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.06);
   padding: 14px 16px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
+.composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 4px 28px -8px rgba(184, 149, 89, 0.25);
+}
+.staged-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 6px 8px 6px 12px;
+  margin-bottom: 4px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--text);
+}
+.staged-file-icon { display: inline-flex; color: var(--dark); }
+.staged-file-icon svg { display: block; }
+.staged-file-name {
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.staged-file-remove {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  line-height: 1;
+  padding: 4px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.staged-file-remove svg { display: block; }
+.staged-file-remove:hover { background: var(--accent-soft-hover); }
+.staged-file-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .composer-top { display: flex; align-items: center; gap: 10px; }
 .composer-top input {
   flex: 1;
@@ -259,20 +303,35 @@ html, body, #root {
 .mic-inline {
   background: transparent;
   border: none;
-  font-size: 18px;
   cursor: pointer;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
 }
-.mic-inline:hover { background: #f3f3f3; }
-.mic-inline.rec { color: #ef4444; }
+.mic-inline:hover { background: #f3f3f3; color: var(--text); }
+.mic-inline:disabled { opacity: 0.5; cursor: not-allowed; }
+.mic-inline.rec {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.10);
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+.mic-inline svg { display: block; }
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
 .composer-bottom {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
+.composer-bottom .send-btn { margin-left: auto; }
 .pill {
   display: inline-flex;
   align-items: center;
@@ -281,11 +340,18 @@ html, body, #root {
   background: #fff;
   border-radius: 999px;
   padding: 6px 12px;
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text);
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.pill:hover { background: #f7f7f7; }
+.pill:hover { background: #f7f7f7; border-color: #d4d4d4; }
+.pill svg { display: block; }
+.attach-pill .attach-icon {
+  display: inline-flex;
+  color: var(--muted);
+}
+.attach-pill:hover .attach-icon { color: var(--text); }
 .mode-pill {
   font-weight: 600;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
@@ -314,21 +380,33 @@ html, body, #root {
 }
 .mode-pill .mode-select:disabled { cursor: not-allowed; opacity: 0.5; }
 .mode-pill .mode-caret {
-  font-size: 10px;
-  opacity: 0.7;
+  display: inline-flex;
+  opacity: 0.6;
   pointer-events: none;
 }
+.mode-pill .mode-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+.mode-pill.mode-thinking .mode-icon { color: var(--dark); }
 .send-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   background: var(--dark);
   color: #fff;
   border: none;
   cursor: pointer;
-  font-size: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
 }
-.send-btn:disabled { background: #ccc; cursor: not-allowed; }
+.send-btn:hover:not(:disabled) { background: #14254c; }
+.send-btn:active:not(:disabled) { transform: scale(0.95); }
+.send-btn:disabled { background: #e5e5e5; color: #9a9a9a; cursor: not-allowed; }
+.send-btn svg { display: block; }
 
 .examples {
   width: 100%;

@@ -39,12 +39,18 @@ export type RAGChatResp = {
 
 export type VoiceChatResp = RAGChatResp & { transcript: string };
 
-export type TranscriptAnalyzeResp = {
+export type DocType = "transcript" | "cv" | "other";
+
+export type DocumentAnalyzeResp = {
+  doc_type: DocType;
   extracted: Record<string, unknown>;
   notes: string | null;
   advice: string;
   handbook_chunks_used: number;
 };
+
+// Back-compat alias for callers that still reference the old type name
+export type TranscriptAnalyzeResp = DocumentAnalyzeResp;
 
 export type RetrieveResp = {
   query: string;
@@ -84,6 +90,20 @@ export function voiceChat(blob: Blob, filename = "voice.webm", topK = 10) {
   fd.append("file", blob, filename);
   fd.append("top_k", String(topK));
   return fpost<VoiceChatResp>("/voice/chat", fd);
+}
+
+export function analyzeDocument(file: File, notes?: string) {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (notes && notes.trim()) fd.append("notes", notes);
+  return fpost<DocumentAnalyzeResp>("/document/analyze", fd);
+}
+
+export function analyzeCv(file: File, notes?: string) {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (notes && notes.trim()) fd.append("notes", notes);
+  return fpost<DocumentAnalyzeResp>("/cv/analyze", fd);
 }
 
 export function analyzeTranscript(file: File, notes?: string) {

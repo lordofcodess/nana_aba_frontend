@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import {
   ragChat,
   voiceChat,
-  analyzeTranscript,
+  analyzeDocument,
   ttsSpeak,
   type ChatMode,
   type ChatMsg,
@@ -138,6 +138,57 @@ const ICON = {
       <circle cx="19" cy="12" r="1.2" fill="currentColor" />
     </svg>
   ),
+  mic: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0" />
+      <path d="M12 18v3" />
+    </svg>
+  ),
+  recStop: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  ),
+  arrowUp: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 19V5" />
+      <path d="M5 12l7-7 7 7" />
+    </svg>
+  ),
+  bolt: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
+    </svg>
+  ),
+  sparkles: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2l1.6 4.4L18 8l-4.4 1.6L12 14l-1.6-4.4L6 8l4.4-1.6L12 2z" />
+      <path d="M19 14l.9 2.5L22 17.5l-2.1 1L19 21l-.9-2.5L16 17.5l2.1-1L19 14z" />
+    </svg>
+  ),
+  paperclip: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  ),
+  file: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+    </svg>
+  ),
+  chevron: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  ),
+  close: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  ),
 };
 
 const EXAMPLES = [
@@ -155,6 +206,7 @@ export default function App() {
   const [activeId, setActiveId] = useState<string>(threads[0].id);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -336,8 +388,39 @@ export default function App() {
   }
 
   async function send(text?: string) {
+    if (busy) return;
     const message = (text ?? input).trim();
-    if (!message || busy) return;
+
+    // If a file is staged, route to document upload (with notes as the message).
+    if (pendingFile) {
+      const f = pendingFile;
+      const notes = message;
+      setInput("");
+      setPendingFile(null);
+      setError(null);
+      const userMsg: ChatMsg = {
+        role: "user",
+        content: notes ? `📄 Uploaded ${f.name}\n\n${notes}` : `📄 Uploaded ${f.name}`,
+      };
+      mutateActive((prev) => [...prev, userMsg]);
+      setBusy(true);
+      try {
+        const resp = await analyzeDocument(f, notes || undefined);
+        const labelMap = { transcript: "transcript", cv: "CV", other: "document" } as const;
+        const heading = `*Detected: ${labelMap[resp.doc_type]}.*\n\n`;
+        mutateActive((prev) => [
+          ...prev,
+          { role: "assistant", content: heading + resp.advice },
+        ]);
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (!message) return;
     setInput("");
     setError(null);
     const historySnapshot = messages;
@@ -361,27 +444,12 @@ export default function App() {
     }
   }
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
-    const notes = input.trim();
-    setInput("");
+    setPendingFile(f);
     setError(null);
-    const userMsg: ChatMsg = {
-      role: "user",
-      content: notes ? `📄 Uploaded ${f.name}\n\n${notes}` : `📄 Uploaded ${f.name}`,
-    };
-    mutateActive((prev) => [...prev, userMsg]);
-    setBusy(true);
-    try {
-      const resp = await analyzeTranscript(f, notes || undefined);
-      mutateActive((prev) => [...prev, { role: "assistant", content: resp.advice }]);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
   }
 
   function newThread() {
@@ -390,6 +458,7 @@ export default function App() {
     setThreads((prev) => [t, ...prev]);
     setActiveId(t.id);
     setInput("");
+    setPendingFile(null);
     setError(null);
     setSidebarOpen(false);
   }
@@ -400,6 +469,7 @@ export default function App() {
     stopAudio();
     setActiveId(id);
     setInput("");
+    setPendingFile(null);
     setError(null);
   }
 
@@ -468,6 +538,24 @@ export default function App() {
         send();
       }}
     >
+      {pendingFile && (
+        <div className="staged-file" role="status" aria-live="polite">
+          <span className="staged-file-icon" aria-hidden="true">{ICON.file}</span>
+          <span className="staged-file-name" title={pendingFile.name}>
+            {pendingFile.name}
+          </span>
+          <button
+            type="button"
+            className="staged-file-remove"
+            onClick={() => setPendingFile(null)}
+            aria-label="Remove staged file"
+            title="Remove"
+            disabled={busy}
+          >
+            {ICON.close}
+          </button>
+        </div>
+      )}
       <div className="composer-top">
         <button
           type="button"
@@ -475,19 +563,26 @@ export default function App() {
           onClick={toggleRecord}
           disabled={busy && !recording}
           title={recording ? "Stop recording" : "Voice question"}
+          aria-label={recording ? "Stop recording" : "Voice question"}
         >
-          {recording ? "■" : "🎤"}
+          {recording ? ICON.recStop : ICON.mic}
         </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask Nana Aba a question"
+          placeholder={
+            pendingFile
+              ? "Add context for this document (optional) and press send"
+              : "Ask Nana Aba a question"
+          }
           disabled={busy}
         />
       </div>
       <div className="composer-bottom">
         <div className={`pill mode-pill ${mode === "thinking" ? "mode-thinking" : "mode-fast"}`}>
-          <span aria-hidden="true">{mode === "fast" ? "⚡" : "🧠"}</span>
+          <span className="mode-icon" aria-hidden="true">
+            {mode === "fast" ? ICON.bolt : ICON.sparkles}
+          </span>
           <select
             className="mode-select"
             value={mode}
@@ -498,10 +593,11 @@ export default function App() {
             <option value="fast">Fast</option>
             <option value="thinking">Thinking</option>
           </select>
-          <span aria-hidden="true" className="mode-caret">▾</span>
+          <span aria-hidden="true" className="mode-caret">{ICON.chevron}</span>
         </div>
-        <label className="pill">
-          📎 Analyze transcript
+        <label className="pill attach-pill" title="Upload a transcript or CV (PDF or image). I'll figure out which it is.">
+          <span className="attach-icon" aria-hidden="true">{ICON.paperclip}</span>
+          <span>Analyze document</span>
           <input
             type="file"
             accept=".pdf,.png,.jpg,.jpeg,.webp"
@@ -510,8 +606,13 @@ export default function App() {
             disabled={busy}
           />
         </label>
-        <button type="submit" className="send-btn" disabled={busy || !input.trim()}>
-          ↑
+        <button
+          type="submit"
+          className="send-btn"
+          disabled={busy || (!input.trim() && !pendingFile)}
+          aria-label="Send"
+        >
+          {ICON.arrowUp}
         </button>
       </div>
     </form>
