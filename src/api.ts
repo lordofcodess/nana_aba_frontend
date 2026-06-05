@@ -18,7 +18,19 @@ export type ChatMsg = {
   content: string;
   citations?: Citation[];
   via_web?: boolean;
+  /** Local user reaction on assistant messages: "like" | "dislike" */
+  feedback?: "like" | "dislike";
 };
+
+export type FeedbackPayload = {
+  rating?: "like" | "dislike";
+  message: string;
+  context?: string;
+  email?: string;
+};
+
+export const submitFeedback = (body: FeedbackPayload) =>
+  jpost<{ ok: true }>("/feedback", body);
 
 export type Source = {
   source_file?: string | null;

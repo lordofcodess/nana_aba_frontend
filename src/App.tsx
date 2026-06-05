@@ -25,6 +25,8 @@ type Thread = {
   title: string;
   messages: ChatMsg[];
   updatedAt: number;
+  /** Optional user-supplied name; when set, overrides auto-derived title. */
+  customTitle?: string;
 };
 
 const NANA_ABA_LOGO = "/logo.png";
@@ -44,7 +46,8 @@ function emptyThread(): Thread {
   return { id: newThreadId(), title: "New chat", messages: [], updatedAt: Date.now() };
 }
 
-function deriveTitle(messages: ChatMsg[]): string {
+function deriveTitle(messages: ChatMsg[], customTitle?: string): string {
+  if (customTitle && customTitle.trim()) return customTitle.trim();
   const first = messages.find((m) => m.role === "user");
   if (!first) return "New chat";
   const clean = first.content.replace(/\s+/g, " ").trim();
@@ -190,6 +193,45 @@ const ICON = {
       <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   ),
+  pencil: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  ),
+  refresh: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+      <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+    </svg>
+  ),
+  thumbsUp: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+    </svg>
+  ),
+  thumbsDown: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3" />
+    </svg>
+  ),
+  share: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="11.49" />
+    </svg>
+  ),
+  mail: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+      <polyline points="22 6 12 13 2 6" />
+    </svg>
+  ),
 };
 
 const EXAMPLES = [
@@ -224,6 +266,10 @@ export default function App() {
   const [ttsLoadingIdx, setTtsLoadingIdx] = useState<number | null>(null);
   const [ttsPlayingIdx, setTtsPlayingIdx] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<string>("");
+  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string>("");
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -292,6 +338,97 @@ export default function App() {
     }
     setTtsPlayingIdx(null);
     setTtsLoadingIdx(null);
+  }
+
+  function startEdit(idx: number, content: string) {
+    setEditingIdx(idx);
+    setEditDraft(content);
+  }
+
+  function cancelEdit() {
+    setEditingIdx(null);
+    setEditDraft("");
+  }
+
+  async function saveEdit(idx: number) {
+    const text = editDraft.trim();
+    setEditingIdx(null);
+    setEditDraft("");
+    if (!text || busy) return;
+    // Truncate everything from this message onward, then re-send.
+    mutateActive((prev) => prev.slice(0, idx));
+    await send(text);
+  }
+
+  async function regenerate(assistantIdx: number) {
+    if (busy) return;
+    // Find the preceding user message; if none, nothing to regenerate.
+    const userIdx = messages.slice(0, assistantIdx).map((m, i) => ({ m, i }))
+      .reverse().find(({ m }) => m.role === "user");
+    if (!userIdx) return;
+    const userMsg = userIdx.m.content;
+    // Drop the assistant message AND replay the user message via send().
+    mutateActive((prev) => prev.slice(0, userIdx.i));
+    await send(userMsg);
+  }
+
+  function toggleFeedback(idx: number, rating: "like" | "dislike") {
+    const current = messages[idx]?.feedback;
+    const next = current === rating ? undefined : rating;
+    mutateActive((prev) =>
+      prev.map((m, i) => (i !== idx ? m : { ...m, feedback: next })),
+    );
+    if (next === "dislike") {
+      window.open(
+        "https://forms.gle/QeGC7hcdQJNjQeJFA",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    }
+  }
+
+  async function shareMessage(idx: number, content: string) {
+    const text = stripMarkdown(content) || content;
+    const shareData = {
+      title: "From Nana Aba AI",
+      text,
+    };
+    try {
+      if (navigator.share && navigator.canShare?.(shareData) !== false) {
+        await navigator.share(shareData);
+        return;
+      }
+    } catch {
+      // user cancelled or share unavailable — fall through to copy
+    }
+    await copyMessage(idx, content);
+  }
+
+  function startRename(threadId: string, currentTitle: string) {
+    setRenamingThreadId(threadId);
+    setRenameDraft(currentTitle);
+  }
+
+  function cancelRename() {
+    setRenamingThreadId(null);
+    setRenameDraft("");
+  }
+
+  function saveRename(threadId: string) {
+    const next = renameDraft.trim();
+    setRenamingThreadId(null);
+    setRenameDraft("");
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id !== threadId
+          ? t
+          : {
+              ...t,
+              customTitle: next || undefined,
+              title: next || deriveTitle(t.messages),
+            },
+      ),
+    );
   }
 
   async function copyMessage(idx: number, content: string) {
@@ -382,7 +519,11 @@ export default function App() {
       prev.map((t) => {
         if (t.id !== activeId) return t;
         const next = updater(t.messages);
-        const title = t.messages.length === 0 && next.length > 0 ? deriveTitle(next) : t.title;
+        const title = t.customTitle?.trim()
+          ? t.customTitle.trim()
+          : t.messages.length === 0 && next.length > 0
+            ? deriveTitle(next)
+            : t.title;
         return { ...t, messages: next, title, updatedAt: Date.now() };
       }),
     );
@@ -648,6 +789,15 @@ export default function App() {
           {ICON.newChat}
           <span>New chat</span>
         </button>
+        <a
+          className="feedback-cta"
+          href="https://forms.gle/QeGC7hcdQJNjQeJFA"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {ICON.mail}
+          <span>Send feedback</span>
+        </a>
         <div className="thread-list">
           {tab === "directions"
             ? [...dirThreads]
@@ -678,12 +828,49 @@ export default function App() {
                 <div
                   key={t.id}
                   className={`thread-item ${t.id === activeId ? "active" : ""}`}
-                  onClick={() => selectThread(t.id)}
+                  onClick={() => {
+                    if (renamingThreadId !== t.id) selectThread(t.id);
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startRename(t.id, t.title);
+                  }}
                 >
                   <div className="thread-main">
-                    <div className="thread-title">{t.title}</div>
+                    {renamingThreadId === t.id ? (
+                      <input
+                        className="thread-rename-input"
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onBlur={() => saveRename(t.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            saveRename(t.id);
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancelRename();
+                          }
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <div className="thread-title">{t.title}</div>
+                    )}
                     <div className="thread-when">{formatWhen(t.updatedAt)}</div>
                   </div>
+                  <button
+                    className="thread-rename"
+                    title="Rename"
+                    aria-label="Rename thread"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startRename(t.id, t.title);
+                    }}
+                  >
+                    {ICON.pencil}
+                  </button>
                   <button
                     className="thread-del"
                     title="Delete"
@@ -771,20 +958,58 @@ export default function App() {
                     <img src={NANA_ABA_LOGO} alt="" className="msg-avatar" />
                   )}
                   <div className="msg-col">
-                    <div className="bubble">
-                      {m.role === "assistant" ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {m.content}
-                        </ReactMarkdown>
-                      ) : (
-                        m.content
-                      )}
-                      {m.role === "assistant" && m.via_web && (
-                        <span className="via-web-badge" title="Answered from the live UG website">
-                          from UG website
-                        </span>
-                      )}
-                    </div>
+                    {editingIdx === i && m.role === "user" ? (
+                      <form
+                        className="bubble bubble-edit"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          saveEdit(i);
+                        }}
+                      >
+                        <textarea
+                          className="bubble-edit-input"
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          rows={Math.min(8, Math.max(2, editDraft.split("\n").length))}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              cancelEdit();
+                            } else if (
+                              e.key === "Enter" &&
+                              (e.metaKey || e.ctrlKey)
+                            ) {
+                              e.preventDefault();
+                              saveEdit(i);
+                            }
+                          }}
+                        />
+                        <div className="bubble-edit-actions">
+                          <button type="button" className="pill" onClick={cancelEdit}>
+                            Cancel
+                          </button>
+                          <button type="submit" className="pill primary" disabled={busy || !editDraft.trim()}>
+                            Save & resend
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="bubble">
+                        {m.role === "assistant" ? (
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {m.content}
+                          </ReactMarkdown>
+                        ) : (
+                          m.content
+                        )}
+                        {m.role === "assistant" && m.via_web && (
+                          <span className="via-web-badge" title="Answered from the live UG website">
+                            from UG website
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {m.role === "assistant" && m.citations && m.citations.length > 0 && (
                       <details className="msg-citations">
                         <summary>Sources ({m.citations.length})</summary>
@@ -809,30 +1034,83 @@ export default function App() {
                       >
                         {copiedIdx === i ? ICON.check : ICON.copy}
                       </button>
-                      {m.role === "assistant" && (
+                      {m.role === "user" && (
                         <button
                           type="button"
-                          className={`icon-btn tts-btn ${ttsPlayingIdx === i ? "playing" : ""} ${ttsLoadingIdx === i ? "loading" : ""}`}
-                          onClick={() => toggleTts(i, m.content)}
-                          title={
-                            ttsPlayingIdx === i
-                              ? "Stop"
-                              : ttsLoadingIdx === i
-                                ? "Loading…"
-                                : "Read aloud"
-                          }
-                          aria-label={
-                            ttsPlayingIdx === i
-                              ? "Stop playback"
-                              : "Read message aloud"
-                          }
+                          className="icon-btn edit-btn"
+                          onClick={() => startEdit(i, m.content)}
+                          title="Edit message"
+                          aria-label="Edit message"
+                          disabled={busy}
                         >
-                          {ttsLoadingIdx === i
-                            ? ICON.loading
-                            : ttsPlayingIdx === i
-                              ? ICON.stop
-                              : ICON.speaker}
+                          {ICON.pencil}
                         </button>
+                      )}
+                      {m.role === "assistant" && (
+                        <>
+                          <button
+                            type="button"
+                            className={`icon-btn tts-btn ${ttsPlayingIdx === i ? "playing" : ""} ${ttsLoadingIdx === i ? "loading" : ""}`}
+                            onClick={() => toggleTts(i, m.content)}
+                            title={
+                              ttsPlayingIdx === i
+                                ? "Stop"
+                                : ttsLoadingIdx === i
+                                  ? "Loading…"
+                                  : "Read aloud"
+                            }
+                            aria-label={
+                              ttsPlayingIdx === i
+                                ? "Stop playback"
+                                : "Read message aloud"
+                            }
+                          >
+                            {ttsLoadingIdx === i
+                              ? ICON.loading
+                              : ttsPlayingIdx === i
+                                ? ICON.stop
+                                : ICON.speaker}
+                          </button>
+                          <button
+                            type="button"
+                            className={`icon-btn feedback-btn ${m.feedback === "like" ? "active" : ""}`}
+                            onClick={() => toggleFeedback(i, "like")}
+                            title={m.feedback === "like" ? "Liked" : "Good answer"}
+                            aria-label="Like this answer"
+                            aria-pressed={m.feedback === "like"}
+                          >
+                            {ICON.thumbsUp}
+                          </button>
+                          <button
+                            type="button"
+                            className={`icon-btn feedback-btn ${m.feedback === "dislike" ? "active down" : ""}`}
+                            onClick={() => toggleFeedback(i, "dislike")}
+                            title={m.feedback === "dislike" ? "Disliked" : "Bad answer"}
+                            aria-label="Dislike this answer"
+                            aria-pressed={m.feedback === "dislike"}
+                          >
+                            {ICON.thumbsDown}
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn regen-btn"
+                            onClick={() => regenerate(i)}
+                            title="Regenerate response"
+                            aria-label="Regenerate response"
+                            disabled={busy}
+                          >
+                            {ICON.refresh}
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn share-btn"
+                            onClick={() => shareMessage(i, m.content)}
+                            title="Share"
+                            aria-label="Share message"
+                          >
+                            {ICON.share}
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
