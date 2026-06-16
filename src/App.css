@@ -1424,46 +1424,157 @@ html, body, #root {
 .sidebar-auth-btn.primary:hover { background: #000; }
 
 /* ─── LoginCard styles ─────────────────────────────────────────────── */
-.login-card { max-width: 420px; }
-.login-prompt {
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--accent-soft);
-  border-radius: 10px;
-  font-size: 14px;
-  color: var(--text);
+.login-card {
+  position: relative;
+  max-width: 440px;
+  border-radius: 22px;
+  padding: 36px 32px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.28);
 }
-.login-blurb {
-  margin: 0;
-  font-size: 14px;
+.login-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
   color: var(--muted);
-  line-height: 1.5;
-}
-.login-fine {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-  text-align: center;
-}
-.google-signin-btn {
+  border-radius: 8px;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  width: 100%;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: white;
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.google-signin-btn:hover { background: #f5f5f5; border-color: #d0d0d0; }
-.google-signin-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.google-signin-btn svg { flex-shrink: 0; }
+.login-close:hover { background: #f3f3f3; color: var(--text); }
+.login-close svg { display: block; }
+
+.login-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--dark);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  box-shadow: 0 6px 18px -6px rgba(27, 46, 92, 0.4);
+}
+.login-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 50%;
+  background: #fff;
+  padding: 3px;
+}
+
+.login-title {
+  margin: 4px 0 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.4px;
+  color: var(--text);
+}
+
+.login-blurb {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.login-highlight {
+  background: var(--accent-soft);
+  color: var(--dark);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.login-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff0f0;
+  border: 1px dashed #f3b6b6;
+  border-radius: 12px;
+  font-size: 13.5px;
+  color: #b31e1e;
+  line-height: 1.45;
+}
+.login-notice code {
+  background: rgba(179, 30, 30, 0.08);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 12.5px;
+}
+.login-notice-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #b31e1e;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.login-google-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 14px 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--dark);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  box-shadow: 0 8px 20px -8px rgba(27, 46, 92, 0.5);
+}
+.login-google-btn:hover:not(:disabled) {
+  background: #14254c;
+  box-shadow: 0 10px 24px -8px rgba(27, 46, 92, 0.6);
+}
+.login-google-btn:active:not(:disabled) { transform: scale(0.985); }
+.login-google-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.login-google-btn svg {
+  flex-shrink: 0;
+  background: #fff;
+  border-radius: 50%;
+  padding: 3px;
+  box-sizing: content-box;
+}
+.login-arrow {
+  font-size: 17px;
+  margin-left: 2px;
+  transition: transform 0.15s ease;
+}
+.login-google-btn:hover:not(:disabled) .login-arrow { transform: translateX(2px); }
+
+.login-fine {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+}
 
 .quota-toast {
   position: fixed;
