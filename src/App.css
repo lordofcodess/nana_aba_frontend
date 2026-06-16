@@ -1388,3 +1388,114 @@ html, body, #root {
   border-radius: 8px;
   font-size: 13px;
 }
+
+/* ─── Sidebar auth row ─────────────────────────────────────────────── */
+.sidebar-auth {
+  margin: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sidebar-auth-email {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-auth-btn {
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.sidebar-auth-btn:hover { background: #f5f5f5; }
+.sidebar-auth-btn.primary {
+  background: var(--dark);
+  color: white;
+  border-color: var(--dark);
+}
+.sidebar-auth-btn.primary:hover { background: #000; }
+
+/* ─── LoginCard styles ─────────────────────────────────────────────── */
+.login-card { max-width: 420px; }
+.login-prompt {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text);
+}
+.login-blurb {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.login-fine {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+.google-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.google-signin-btn:hover { background: #f5f5f5; border-color: #d0d0d0; }
+.google-signin-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.google-signin-btn svg { flex-shrink: 0; }
+
+.quota-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 12px 16px;
+  background: #1f1f1f;
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  line-height: 1.4;
+  z-index: 1100;
+  animation: quota-toast-in 0.2s ease-out;
+}
+.quota-toast-close {
+  background: transparent;
+  border: 0;
+  color: #fff;
+  opacity: 0.7;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.quota-toast-close:hover { opacity: 1; }
+@keyframes quota-toast-in {
+  from { transform: translate(-50%, 12px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}

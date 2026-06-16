@@ -69,23 +69,94 @@ export type RetrieveResp = {
   chunks: Array<Record<string, unknown>>;
 };
 
+// ── Auth token holder ────────────────────────────────────────────────────
+// AuthProvider keeps this updated; the API client reads it for every request.
+let _authToken: string | null = null;
+export function setAuthToken(token: string | null) {
+  _authToken = token;
+}
+
+// Callback the frontend wires up to surface quota exhaustion to the UI:
+// - kind="anonymous" (HTTP 402) opens the login modal
+// - kind="authenticated" (HTTP 429) shows a non-modal toast
+type QuotaKind = "anonymous" | "authenticated";
+export type QuotaExceeded = { kind: QuotaKind; limit: number; used: number; message: string };
+let _onQuotaExceeded: ((info: QuotaExceeded) => void) | null = null;
+export function setQuotaExceededHandler(fn: ((info: QuotaExceeded) => void) | null) {
+  _onQuotaExceeded = fn;
+}
+
+export class QuotaExceededError extends Error {
+  info: QuotaExceeded;
+  constructor(info: QuotaExceeded) {
+    super(info.message);
+    this.info = info;
+    this.name = "QuotaExceededError";
+  }
+}
+
+function authHeaders(): HeadersInit {
+  return _authToken ? { Authorization: `Bearer ${_authToken}` } : {};
+}
+
+async function handleAuthFailure(r: Response): Promise<never> {
+  // Try to parse a structured detail (e.g. anonymous_quota_exceeded, user_quota_exceeded)
+  let detail: unknown = null;
+  try {
+    detail = (await r.clone().json()).detail;
+  } catch {
+    /* fall through */
+  }
+  if ((r.status === 402 || r.status === 429) && detail && typeof detail === "object") {
+    const d = detail as Partial<QuotaExceeded> & { code?: string };
+    const kind: QuotaKind = r.status === 429 ? "authenticated" : "anonymous";
+    const fallback =
+      kind === "authenticated"
+        ? "You've hit today's message limit. Try again later."
+        : "You've used your free messages. Sign in with Google to keep going.";
+    const info: QuotaExceeded = {
+      kind,
+      limit: d.limit ?? 0,
+      used: d.used ?? 0,
+      message: d.message ?? fallback,
+    };
+    _onQuotaExceeded?.(info);
+    throw new QuotaExceededError(info);
+  }
+  throw new Error((await r.text()) || r.statusText);
+}
+
 async function jpost<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  if (!r.ok) return handleAuthFailure(r);
   return r.json();
 }
 
 async function fpost<T>(path: string, fd: FormData): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`, { method: "POST", body: fd });
-  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: fd,
+    headers: authHeaders(),
+  });
+  if (!r.ok) return handleAuthFailure(r);
   return r.json();
 }
 
 export const health = () => fetch(`${API_BASE}/health`).then((r) => r.json());
+
+export type QuotaStatus =
+  | { authenticated: true }
+  | { authenticated: false; limit: number; used: number; remaining: number };
+
+export const fetchQuotaStatus = async (): Promise<QuotaStatus> => {
+  const r = await fetch(`${API_BASE}/auth/quota`, { headers: authHeaders() });
+  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  return r.json();
+};
 
 export const ragChat = (
   query: string,

@@ -10,6 +10,9 @@ import {
   type ChatMsg,
 } from "./api";
 import DirectionsTab from "./DirectionsTab";
+import LoginCard from "./LoginCard";
+import { useAuth } from "./AuthContext";
+import { setQuotaExceededHandler } from "./api";
 import {
   emptyThread as emptyDirThread,
   loadThreads as loadDirThreads,
@@ -270,6 +273,10 @@ export default function App() {
   const [editDraft, setEditDraft] = useState<string>("");
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState<string>("");
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginPrompt, setLoginPrompt] = useState<string | null>(null);
+  const [quotaToast, setQuotaToast] = useState<string | null>(null);
+  const { user: authUser, configured: authConfigured, signOut } = useAuth();
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -283,6 +290,27 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
   }, [threads]);
+
+  // Bridge backend quota exhaustion:
+  //   402 anonymous → open the login modal
+  //   429 authenticated → show a non-modal toast
+  useEffect(() => {
+    setQuotaExceededHandler((info) => {
+      if (info.kind === "authenticated") {
+        setQuotaToast(info.message);
+      } else {
+        setLoginPrompt(info.message);
+        setLoginOpen(true);
+      }
+    });
+    return () => setQuotaExceededHandler(null);
+  }, []);
+
+  useEffect(() => {
+    if (!quotaToast) return;
+    const id = window.setTimeout(() => setQuotaToast(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [quotaToast]);
 
   useEffect(() => {
     saveDirThreads(dirThreads);
@@ -789,6 +817,35 @@ export default function App() {
           {ICON.newChat}
           <span>New chat</span>
         </button>
+        {authConfigured && (
+          <div className="sidebar-auth">
+            {authUser ? (
+              <>
+                <div className="sidebar-auth-email" title={authUser.email ?? authUser.id}>
+                  {authUser.email ?? "Signed in"}
+                </div>
+                <button
+                  type="button"
+                  className="sidebar-auth-btn"
+                  onClick={signOut}
+                >
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="sidebar-auth-btn primary"
+                onClick={() => {
+                  setLoginPrompt(null);
+                  setLoginOpen(true);
+                }}
+              >
+                Sign in
+              </button>
+            )}
+          </div>
+        )}
         <a
           className="feedback-cta"
           href="https://forms.gle/QeGC7hcdQJNjQeJFA"
@@ -1133,6 +1190,25 @@ export default function App() {
           </>
         )}
       </div>
+      {loginOpen && (
+        <LoginCard
+          prompt={loginPrompt ?? undefined}
+          onClose={() => setLoginOpen(false)}
+        />
+      )}
+      {quotaToast && (
+        <div className="quota-toast" role="status" aria-live="polite">
+          <span>{quotaToast}</span>
+          <button
+            type="button"
+            className="quota-toast-close"
+            onClick={() => setQuotaToast(null)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }
