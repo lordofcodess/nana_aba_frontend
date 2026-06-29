@@ -9,6 +9,7 @@ import {
   type ChatMode,
   type ChatMsg,
 } from "./api";
+import { getCachedTts, putCachedTts } from "./ttsCache";
 import DirectionsTab from "./DirectionsTab";
 import LoginCard from "./LoginCard";
 import { useAuth } from "./AuthContext";
@@ -283,6 +284,9 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const ttsAbortRef = useRef<AbortController | null>(null);
+  // Caches synthesized TTS audio by text so replaying a message doesn't hit the
+  // TTS endpoint again. In-memory: lives for the session, cleared on reload.
+  const ttsCacheRef = useRef<Map<string, Blob>>(new Map());
 
   const active = threads.find((t) => t.id === activeId) ?? threads[0];
   const messages = active.messages;
@@ -508,8 +512,16 @@ export default function App() {
     ttsAbortRef.current = controller;
     setTtsLoadingIdx(idx);
     try {
-      const blob = await ttsSpeak(cleaned, "English", controller.signal);
+      const cacheKey = `English\n${cleaned}`;
+      // Three-tier lookup: in-memory map → IndexedDB → TTS endpoint.
+      let blob = ttsCacheRef.current.get(cacheKey) ?? null;
+      if (!blob) blob = await getCachedTts(cleaned, "English");
+      const fromNetwork = !blob;
+      if (!blob) blob = await ttsSpeak(cleaned, "English", controller.signal);
       if (controller.signal.aborted) return;
+      ttsCacheRef.current.set(cacheKey, blob);
+      // Persist only freshly-synthesized audio (IDB hits are already stored).
+      if (fromNetwork) void putCachedTts(cleaned, "English", blob);
       const url = URL.createObjectURL(blob);
       audioUrlRef.current = url;
       audio.onended = () => {
