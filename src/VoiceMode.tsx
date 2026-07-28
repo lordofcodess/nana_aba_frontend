@@ -70,13 +70,22 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
   }, []);
 
   const stopPlayback = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.onended = null;
-      audioRef.current.pause();
+    const el = audioRef.current;
+    const url = audioUrlRef.current;
+    if (el) {
+      el.onended = null;
+      el.onerror = null;
+      el.pause();
+      // Detach the src before revoking so Safari doesn't complain about a
+      // blob resource disappearing while the media element still references
+      // it (WebKitBlobResource error 1).
+      try { el.removeAttribute("src"); el.load(); } catch { /* ignore */ }
       audioRef.current = null;
     }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
+    if (url) {
+      // Defer the revoke one frame — gives WebKit time to release the blob
+      // reference cleanly after we cleared src above.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
       audioUrlRef.current = null;
     }
   }, []);
