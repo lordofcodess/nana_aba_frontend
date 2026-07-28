@@ -712,6 +712,56 @@ html, body, #root {
   padding: 8px 12px;
   border-radius: 8px;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.error-dismiss {
+  background: none;
+  border: none;
+  color: #b91c1c;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.error-dismiss:hover { background: #fee2e2; }
+
+/* Send button repurposed as a stop button while an answer is streaming */
+.send-btn.stop-btn {
+  background: #b91c1c;
+}
+.send-btn.stop-btn:hover { background: #991b1b; }
+
+/* Status line under the hero composer (transcription/thinking on empty threads) */
+.hero-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--muted, #6b7280);
+  font-size: 13px;
+}
+
+/* Clarifying-question messages get a subtle accent treatment */
+.bubble.probe {
+  border-left: 3px solid var(--accent, #2f5fd0);
+}
+.probe-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent, #2f5fd0);
+  background: rgba(47, 95, 208, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-bottom: 6px;
 }
 
 @media (max-width: 760px) {

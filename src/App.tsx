@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  ragChat,
-  voiceChat,
+  ragChatStream,
+  transcribeVoice,
   analyzeDocument,
   ttsSpeak,
   type ChatMode,
   type ChatMsg,
+  type StreamStage,
 } from "./api";
 import { getCachedTts, putCachedTts } from "./ttsCache";
+import VoiceMode from "./VoiceMode";
 import DirectionsTab from "./DirectionsTab";
 import LoginCard from "./LoginCard";
 import { useAuth } from "./AuthContext";
@@ -252,10 +254,17 @@ export default function App() {
   });
   const [activeId, setActiveId] = useState<string>(threads[0].id);
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
+  // Busy/stream state is tracked PER THREAD so a stream in one thread doesn't
+  // lock the composer in another. `busy` etc. below are derived for the
+  // active thread, so all consumers read naturally.
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [transcribingId, setTranscribingId] = useState<string | null>(null);
+  const [streamStageById, setStreamStageById] = useState<Record<string, StreamStage | null>>({});
+  const [streamStartedById, setStreamStartedById] = useState<Record<string, boolean>>({});
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.innerWidth >= 761;
@@ -280,6 +289,7 @@ export default function App() {
   const { user: authUser, configured: authConfigured, signOut } = useAuth();
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const streamAbortsRef = useRef<Map<string, AbortController>>(new Map());
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
@@ -291,9 +301,40 @@ export default function App() {
   const active = threads.find((t) => t.id === activeId) ?? threads[0];
   const messages = active.messages;
 
+  // Derived per-active-thread flags — every consumer below reads these.
+  const busy = busyIds.has(activeId);
+  const transcribing = transcribingId === activeId;
+  const streamStage = streamStageById[activeId] ?? null;
+  const streamStarted = !!streamStartedById[activeId];
+
+  function setThreadBusy(id: string, on: boolean) {
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
+
+  // Debounced persistence: streaming updates threads on every delta, and
+  // serializing all threads per token gets expensive with long histories.
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
+    const id = window.setTimeout(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
+    }, 400);
+    return () => window.clearTimeout(id);
   }, [threads]);
+
+  // Flush the latest threads if the tab closes inside the debounce window.
+  useEffect(() => {
+    const flush = () =>
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(threadsRef.current));
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
 
   // Bridge backend quota exhaustion:
   //   402 anonymous → open the login modal
@@ -351,7 +392,14 @@ export default function App() {
   }
 
   useEffect(() => {
-    scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollerRef.current;
+    if (!el) return;
+    // Only follow the stream if the user is already near the bottom — never
+    // yank them down while they're re-reading earlier messages.
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+    if (!nearBottom) return;
+    // Instant during streaming (smooth fights per-delta updates), smooth otherwise.
+    el.scrollTo({ top: el.scrollHeight, behavior: busy ? "auto" : "smooth" });
   }, [messages, busy]);
 
   function stopAudio() {
@@ -517,7 +565,7 @@ export default function App() {
       let blob = ttsCacheRef.current.get(cacheKey) ?? null;
       if (!blob) blob = await getCachedTts(cleaned, "English");
       const fromNetwork = !blob;
-      if (!blob) blob = await ttsSpeak(cleaned, "English", controller.signal);
+      if (!blob) blob = await ttsSpeak(cleaned, controller.signal);
       if (controller.signal.aborted) return;
       ttsCacheRef.current.set(cacheKey, blob);
       // Persist only freshly-synthesized audio (IDB hits are already stored).
@@ -585,7 +633,8 @@ export default function App() {
         content: notes ? `📄 Uploaded ${f.name}\n\n${notes}` : `📄 Uploaded ${f.name}`,
       };
       mutateActive((prev) => [...prev, userMsg]);
-      setBusy(true);
+      const tid = activeId;
+      setThreadBusy(tid, true);
       try {
         const resp = await analyzeDocument(f, notes || undefined);
         const labelMap = { transcript: "transcript", cv: "CV", other: "document" } as const;
@@ -597,7 +646,7 @@ export default function App() {
       } catch (err) {
         setError((err as Error).message);
       } finally {
-        setBusy(false);
+        setThreadBusy(tid, false);
       }
       return;
     }
@@ -607,22 +656,97 @@ export default function App() {
     setError(null);
     const historySnapshot = messages;
     mutateActive((prev) => [...prev, { role: "user", content: message }]);
-    setBusy(true);
-    try {
-      const resp = await ragChat(message, historySnapshot, mode);
+    await streamAnswer(message, historySnapshot);
+  }
+
+  /** Abort the active thread's in-flight stream, keeping the partial answer. */
+  function stopGenerating() {
+    streamAbortsRef.current.get(activeId)?.abort();
+  }
+
+  /** Stream the assistant's answer token-by-token into the thread. */
+  async function streamAnswer(message: string, historySnapshot: ChatMsg[]) {
+    const tid = activeId; // originating thread — deltas land here even if the user switches away
+    setThreadBusy(tid, true);
+    setStreamStageById((p) => ({ ...p, [tid]: null }));
+    setStreamStartedById((p) => ({ ...p, [tid]: false }));
+    const controller = new AbortController();
+    streamAbortsRef.current.set(tid, controller);
+    let assistantAdded = false;
+
+    const ensureAssistant = () => {
+      if (assistantAdded) return;
+      assistantAdded = true;
+      setStreamStartedById((p) => ({ ...p, [tid]: true }));
       mutateActive((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content: resp.answer,
-          citations: resp.citations ?? [],
-          via_web: resp.via_web ?? false,
-        },
+        { role: "assistant", content: "", citations: [], via_web: false },
       ]);
+    };
+    const patchLast = (patch: (last: ChatMsg) => ChatMsg) =>
+      mutateActive((prev) => {
+        if (prev.length === 0 || prev[prev.length - 1].role !== "assistant") return prev;
+        const next = [...prev];
+        next[next.length - 1] = patch(next[next.length - 1]);
+        return next;
+      });
+
+    try {
+      await ragChatStream(
+        message,
+        historySnapshot,
+        mode,
+        (ev) => {
+          if (ev.type === "status") {
+            setStreamStageById((p) => ({ ...p, [tid]: ev.stage }));
+          } else if (ev.type === "delta") {
+            ensureAssistant();
+            patchLast((last) => ({ ...last, content: last.content + ev.text }));
+          } else if (ev.type === "replace") {
+            ensureAssistant();
+            patchLast((last) => ({ ...last, content: ev.text }));
+          } else if (ev.type === "meta") {
+            ensureAssistant();
+            patchLast((last) => ({
+              ...last,
+              citations: ev.citations ?? [],
+              via_web: ev.via_web ?? false,
+              probing: ev.probing || undefined,
+            }));
+          }
+        },
+        controller.signal,
+      );
+      if (!assistantAdded) {
+        // Stream ended without content — surface it rather than staying silent.
+        setError("No answer was generated. Please try again.");
+      }
     } catch (e) {
-      setError((e as Error).message);
+      if ((e as Error).name === "AbortError") {
+        // User pressed stop: keep the partial answer; drop an empty bubble.
+        mutateActive((prev) =>
+          prev.length &&
+          prev[prev.length - 1].role === "assistant" &&
+          !prev[prev.length - 1].content
+            ? prev.slice(0, -1)
+            : prev,
+        );
+      } else {
+        setError((e as Error).message);
+        // Drop a dangling empty assistant bubble if the stream died before text.
+        mutateActive((prev) =>
+          prev.length && prev[prev.length - 1].role === "assistant" && !prev[prev.length - 1].content
+            ? prev.slice(0, -1)
+            : prev,
+        );
+      }
     } finally {
-      setBusy(false);
+      if (streamAbortsRef.current.get(tid) === controller) {
+        streamAbortsRef.current.delete(tid);
+      }
+      setThreadBusy(tid, false);
+      setStreamStageById((p) => ({ ...p, [tid]: null }));
+      setStreamStartedById((p) => ({ ...p, [tid]: false }));
     }
   }
 
@@ -682,23 +806,22 @@ export default function App() {
         stream.getTracks().forEach((t) => t.stop());
         setRecording(false);
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        setBusy(true);
+        // 1. Transcribe (visible "Transcribing…" state), 2. show the transcript
+        // as the user's message, 3. stream the answer like a typed question.
+        const tid = activeId;
+        setTranscribingId(tid);
+        setThreadBusy(tid, true);
         try {
-          const resp = await voiceChat(blob);
-          mutateActive((prev) => [
-            ...prev,
-            { role: "user", content: resp.transcript },
-            {
-              role: "assistant",
-              content: resp.answer,
-              citations: resp.citations ?? [],
-              via_web: resp.via_web ?? false,
-            },
-          ]);
+          const { transcript } = await transcribeVoice(blob);
+          setTranscribingId((cur) => (cur === tid ? null : cur));
+          const historySnapshot = messages;
+          mutateActive((prev) => [...prev, { role: "user", content: transcript }]);
+          await streamAnswer(transcript, historySnapshot);
         } catch (err) {
           setError((err as Error).message);
         } finally {
-          setBusy(false);
+          setTranscribingId((cur) => (cur === tid ? null : cur));
+          setThreadBusy(tid, false);
         }
       };
       recRef.current = rec;
@@ -749,15 +872,34 @@ export default function App() {
         >
           {recording ? ICON.recStop : ICON.mic}
         </button>
+        <button
+          type="button"
+          className="mic-inline voice-mode-btn"
+          onClick={() => {
+            stopAudio(); // don't let a read-aloud keep playing under the overlay
+            setVoiceOpen(true);
+          }}
+          disabled={busy || recording}
+          title="Voice conversation"
+          aria-label="Start voice conversation"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M3 10v4M8 6v12M13 3v18M18 7v10M21 10v4" />
+          </svg>
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={
-            pendingFile
-              ? "Add context for this document (optional) and press send"
-              : "Ask Nana Aba a question"
+            transcribing
+              ? "Transcribing your voice…"
+              : pendingFile
+                ? "Add context for this document (optional) and press send"
+                : recording
+                  ? "Recording… stop the mic to continue"
+                  : "Ask Nana Aba a question"
           }
-          disabled={busy}
+          disabled={busy || recording}
         />
       </div>
       <div className="composer-bottom">
@@ -785,17 +927,31 @@ export default function App() {
             accept=".pdf,.png,.jpg,.jpeg,.webp"
             hidden
             onChange={onFile}
-            disabled={busy}
+            disabled={busy || recording}
           />
         </label>
-        <button
-          type="submit"
-          className="send-btn"
-          disabled={busy || (!input.trim() && !pendingFile)}
-          aria-label="Send"
-        >
-          {ICON.arrowUp}
-        </button>
+        {busy && streamAbortsRef.current.has(activeId) ? (
+          <button
+            type="button"
+            className="send-btn stop-btn"
+            onClick={stopGenerating}
+            aria-label="Stop generating"
+            title="Stop generating"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="5" y="5" width="14" height="14" rx="2" />
+            </svg>
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="send-btn"
+            disabled={busy || recording || (!input.trim() && !pendingFile)}
+            aria-label="Send"
+          >
+            {ICON.arrowUp}
+          </button>
+        )}
       </div>
     </form>
   );
@@ -1010,6 +1166,16 @@ export default function App() {
               Welcome to <span className="accent">Nana Aba AI</span>
             </h1>
             {composer}
+            {(transcribing || busy) && (
+              <div className="hero-status" role="status" aria-live="polite">
+                <span className="thinking-label">
+                  {transcribing ? "Transcribing your voice" : "Thinking"}
+                </span>
+                <span className="dots">
+                  <span /><span /><span />
+                </span>
+              </div>
+            )}
             <div className="examples">
               {EXAMPLES.map((s) => (
                 <button key={s} className="example-card" onClick={() => send(s)}>
@@ -1020,7 +1186,7 @@ export default function App() {
           </section>
         ) : (
           <>
-            <main className="chat" ref={scrollerRef}>
+            <main className="chat" ref={scrollerRef} aria-live="polite">
               {messages.map((m, i) => (
                 <div key={i} className={`msg ${m.role}`}>
                   {m.role === "assistant" && (
@@ -1064,7 +1230,10 @@ export default function App() {
                         </div>
                       </form>
                     ) : (
-                      <div className="bubble">
+                      <div className={`bubble${m.probing ? " probe" : ""}`}>
+                        {m.role === "assistant" && m.probing && (
+                          <span className="probe-chip">Quick question</span>
+                        )}
                         {m.role === "assistant" ? (
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {m.content}
@@ -1093,7 +1262,16 @@ export default function App() {
                         </ul>
                       </details>
                     )}
-                    <div className="msg-actions">
+                    {/* Hide actions on the message currently being streamed —
+                        copy/read-aloud on a half-answer is misleading. */}
+                    <div
+                      className="msg-actions"
+                      style={
+                        busy && m.role === "assistant" && i === messages.length - 1
+                          ? { visibility: "hidden" }
+                          : undefined
+                      }
+                    >
                       <button
                         type="button"
                         className={`icon-btn copy-btn ${copiedIdx === i ? "copied" : ""}`}
@@ -1185,11 +1363,19 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              {busy && (
+              {(busy || transcribing) && !streamStarted && (
                 <div className="msg assistant">
                   <img src={NANA_ABA_LOGO} alt="" className="msg-avatar" />
                   <div className="bubble typing">
-                    <span className="thinking-label">Thinking</span>
+                    <span className="thinking-label">
+                      {transcribing
+                        ? "Transcribing your voice"
+                        : streamStage === "retrieving"
+                          ? "Searching the handbooks"
+                          : streamStage === "web_search"
+                            ? "Checking the UG website"
+                            : "Thinking"}
+                    </span>
                     <span className="dots">
                       <span /><span /><span />
                     </span>
@@ -1197,7 +1383,19 @@ export default function App() {
                 </div>
               )}
             </main>
-            {error && <div className="error">{error}</div>}
+            {error && (
+              <div className="error" role="alert">
+                <span>{error}</span>
+                <button
+                  type="button"
+                  className="error-dismiss"
+                  onClick={() => setError(null)}
+                  aria-label="Dismiss error"
+                >
+                  ×
+                </button>
+              </div>
+            )}
             <div className="composer-wrap">{composer}</div>
           </>
         )}
@@ -1220,6 +1418,24 @@ export default function App() {
             ×
           </button>
         </div>
+      )}
+      {voiceOpen && (
+        <VoiceMode
+          history={messages}
+          onExchange={(userText, assistantText, viaWeb) =>
+            mutateActive((prev) => [
+              ...prev,
+              { role: "user", content: userText },
+              {
+                role: "assistant",
+                content: assistantText,
+                citations: [],
+                via_web: viaWeb,
+              },
+            ])
+          }
+          onClose={() => setVoiceOpen(false)}
+        />
       )}
     </div>
   );

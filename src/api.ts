@@ -18,6 +18,8 @@ export type ChatMsg = {
   content: string;
   citations?: Citation[];
   via_web?: boolean;
+  /** True when the assistant is asking a clarifying question, not answering. */
+  probing?: boolean;
   /** Local user reaction on assistant messages: "like" | "dislike" */
   feedback?: "like" | "dislike";
 };
@@ -48,8 +50,6 @@ export type RAGChatResp = {
   citations?: Citation[];
   via_web?: boolean;
 };
-
-export type VoiceChatResp = RAGChatResp & { transcript: string };
 
 export type DocType = "transcript" | "cv" | "other";
 
@@ -123,7 +123,17 @@ async function handleAuthFailure(r: Response): Promise<never> {
     _onQuotaExceeded?.(info);
     throw new QuotaExceededError(info);
   }
-  throw new Error((await r.text()) || r.statusText);
+  // Prefer the API's human-readable `detail` over raw JSON in the error UI.
+  const text = await r.text();
+  let message = text || r.statusText;
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.detail === "string") message = parsed.detail;
+    else if (typeof parsed?.detail?.message === "string") message = parsed.detail.message;
+  } catch {
+    /* not JSON — use the raw text */
+  }
+  throw new Error(message);
 }
 
 async function jpost<T>(path: string, body: unknown): Promise<T> {
@@ -148,31 +158,108 @@ async function fpost<T>(path: string, fd: FormData): Promise<T> {
 
 export const health = () => fetch(`${API_BASE}/health`).then((r) => r.json());
 
-export type QuotaStatus =
-  | { authenticated: true }
-  | { authenticated: false; limit: number; used: number; remaining: number };
+export type StreamStage = "retrieving" | "generating" | "web_search";
 
-export const fetchQuotaStatus = async (): Promise<QuotaStatus> => {
-  const r = await fetch(`${API_BASE}/auth/quota`, { headers: authHeaders() });
-  if (!r.ok) throw new Error((await r.text()) || r.statusText);
-  return r.json();
-};
+export type ChatStreamEvent =
+  | { type: "status"; stage: StreamStage }
+  | { type: "delta"; text: string }
+  | { type: "replace"; text: string }
+  | {
+      type: "meta";
+      sources: RAGChatResp["sources"];
+      probing: boolean;
+      chitchat: boolean;
+      citations: Citation[];
+      via_web: boolean;
+    }
+  | { type: "error"; detail: string }
+  | { type: "done" };
 
-export const ragChat = (
+/** Streaming /chat: parses SSE events and invokes onEvent for each. */
+export async function ragChatStream(
   query: string,
   history: ChatMsg[] = [],
   mode: ChatMode = "fast",
-  topK?: number,
-) => jpost<RAGChatResp>("/chat", { query, history, mode, ...(topK ? { top_k: topK } : {}) });
+  onEvent: (ev: ChatStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const r = await fetch(`${API_BASE}/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({
+      query,
+      mode,
+      history: history.map((m) => ({ role: m.role, content: m.content })),
+    }),
+    signal,
+  });
+  if (!r.ok || !r.body) return handleAuthFailure(r);
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buf.indexOf("\n\n")) >= 0) {
+      const frame = buf.slice(0, sep).trim();
+      buf = buf.slice(sep + 2);
+      if (!frame.startsWith("data:")) continue;
+      let ev: ChatStreamEvent;
+      try {
+        ev = JSON.parse(frame.slice(5).trim());
+      } catch {
+        continue;
+      }
+      if (ev.type === "error") throw new Error(ev.detail || "Stream failed");
+      onEvent(ev);
+    }
+  }
+}
+
+/** Transcribe a voice recording to text (no answer generated). */
+export function transcribeVoice(blob: Blob, filename = "voice.webm") {
+  const fd = new FormData();
+  fd.append("file", blob, filename);
+  return fpost<{ transcript: string }>("/transcribe", fd);
+}
 
 export const ragRetrieve = (query: string, topK = 10) =>
   jpost<RetrieveResp>("/retrieve", { query, top_k: topK });
 
-export function voiceChat(blob: Blob, filename = "voice.webm", topK = 10) {
+export type VoiceConverseResp = {
+  transcript: string;
+  answer: string;
+  via_web: boolean;
+  audio_b64: string;
+  mime: string;
+  sample_rate: number;
+};
+
+/** Full voice-to-voice turn: audio in → {transcript, answer, spoken reply}. */
+export async function voiceConverse(
+  blob: Blob,
+  history: ChatMsg[] = [],
+  signal?: AbortSignal,
+  filename = "voice.webm",
+): Promise<VoiceConverseResp> {
   const fd = new FormData();
   fd.append("file", blob, filename);
-  fd.append("top_k", String(topK));
-  return fpost<VoiceChatResp>("/voice/chat", fd);
+  fd.append(
+    "history",
+    JSON.stringify(history.map((m) => ({ role: m.role, content: m.content }))),
+  );
+  fd.append("mode", "fast");
+  const r = await fetch(`${API_BASE}/voice/converse`, {
+    method: "POST",
+    body: fd,
+    headers: authHeaders(),
+    signal,
+  });
+  if (!r.ok) return handleAuthFailure(r);
+  return r.json();
 }
 
 export function analyzeDocument(file: File, notes?: string) {
@@ -211,15 +298,30 @@ export type RewriteStepsResp = { steps: string[] };
 export const rewriteSteps = (body: RewriteStepsReq) =>
   jpost<RewriteStepsResp>("/directions/rewrite-steps", body);
 
+// Locked-in voice preset. Leave any field as "" to let the backend use its
+// own default. To pin a value, edit here — one place, one change.
+const TTS_DEFAULTS = {
+  ref_audio: "",
+  ref_text: "",
+  duration: "",
+  speed: "",
+};
+
 export async function ttsSpeak(
   text: string,
-  language: string = "English",
   signal?: AbortSignal,
 ): Promise<Blob> {
   const fd = new FormData();
   fd.append("text", text);
-  fd.append("language", language);
-  const r = await fetch(`${TTS_BASE}/tts/form`, { method: "POST", body: fd, signal });
+  fd.append("ref_audio", TTS_DEFAULTS.ref_audio);
+  fd.append("ref_text", TTS_DEFAULTS.ref_text);
+  fd.append("duration", TTS_DEFAULTS.duration);
+  fd.append("speed", TTS_DEFAULTS.speed);
+  const r = await fetch(`${TTS_BASE}/clone`, {
+    method: "POST",
+    body: fd,
+    signal,
+  });
   if (!r.ok) throw new Error((await r.text()) || r.statusText);
   return r.blob();
 }
