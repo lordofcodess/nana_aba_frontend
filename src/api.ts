@@ -243,10 +243,23 @@ export async function voiceConverse(
   blob: Blob,
   history: ChatMsg[] = [],
   signal?: AbortSignal,
-  filename = "voice.webm",
+  filename?: string,
 ): Promise<VoiceConverseResp> {
+  // Derive extension from the actual MIME so backends that route decoding by
+  // filename extension (or reject unknown ones with 422) get a consistent hint.
+  const type = blob.type || "";
+  const ext = type.includes("mp4") || type.includes("m4a")
+    ? "m4a"
+    : type.includes("ogg")
+      ? "ogg"
+      : type.includes("wav")
+        ? "wav"
+        : type.includes("mpeg") || type.includes("mp3")
+          ? "mp3"
+          : "webm";
+  const name = filename ?? `voice.${ext}`;
   const fd = new FormData();
-  fd.append("file", blob, filename);
+  fd.append("file", blob, name);
   fd.append(
     "history",
     JSON.stringify(history.map((m) => ({ role: m.role, content: m.content }))),
