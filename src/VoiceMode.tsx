@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { voiceConverse, transcribeVoice, ragChatStream, ttsSpeak, type ChatMsg } from "./api";
 import "./VoiceMode.css";
+import { requestVoiceMicrophone, withVoiceTimeout } from "./voiceRuntime";
 
 type Phase = "starting" | "listening" | "thinking" | "speaking" | "error";
 
@@ -37,6 +38,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
   const [phase, setPhase] = useState<Phase>("starting");
   const [level, setLevel] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorStage, setErrorStage] = useState<"microphone" | "activation" | "request" | "playback">("microphone");
   const [draft, setDraft] = useState("");
   const [muted, setMuted] = useState(false);
   const mutedRef = useRef(false);
@@ -50,8 +52,9 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const meterRef = useRef<number | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const pendingAudioRef = useRef<ArrayBuffer | null>(null);
+  const playbackGeneration = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const closedRef = useRef(false);
   const phaseRef = useRef<Phase>("starting");
@@ -73,23 +76,13 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
   }, []);
 
   const stopPlayback = useCallback(() => {
-    const el = audioRef.current;
-    const url = audioUrlRef.current;
-    if (el) {
-      el.onended = null;
-      el.onerror = null;
-      el.pause();
-      // Detach the src before revoking so Safari doesn't complain about a
-      // blob resource disappearing while the media element still references
-      // it (WebKitBlobResource error 1).
-      try { el.removeAttribute("src"); el.load(); } catch { /* ignore */ }
-      audioRef.current = null;
-    }
-    if (url) {
-      // Defer the revoke one frame — gives WebKit time to release the blob
-      // reference cleanly after we cleared src above.
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-      audioUrlRef.current = null;
+    playbackGeneration.current++;
+    const source = audioSourceRef.current;
+    if (source) {
+      source.onended = null;
+      try { source.stop(); } catch { /* already stopped */ }
+      source.disconnect();
+      audioSourceRef.current = null;
     }
   }, []);
 
@@ -98,6 +91,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
     listeningGeneration.current++;
     stopMeter();
     stopPlayback();
+    pendingAudioRef.current = null;
     abortRef.current?.abort();
     if (recRef.current && recRef.current.state !== "inactive") {
       discardRef.current = true;
@@ -111,39 +105,41 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
     streamRef.current = null;
     audioCtxRef.current?.close().catch(() => {});
     audioCtxRef.current = null;
+    analyserRef.current = null;
   }, [stopMeter, stopPlayback]);
 
   const playReply = useCallback(
-    (b64: string, mime: string) => {
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
-      audioUrlRef.current = url;
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      setPhaseSafe("speaking");
-      audio.onended = () => {
+    async (bytes: ArrayBuffer) => {
+      stopPlayback();
+      pendingAudioRef.current = bytes;
+      const generation = playbackGeneration.current;
+      setErrorMsg(null);
+      setPhaseSafe("thinking");
+      try {
+        const context = audioCtxRef.current ?? (audioCtxRef.current = new AudioContext());
+        // Run resume synchronously on an orb tap, before decoding/network awaits.
+        await withVoiceTimeout(context.resume(), 5000, "Tap the orb to enable audio and play the reply.");
+        const buffer = await withVoiceTimeout(context.decodeAudioData(bytes.slice(0)), 10000, "Audio took too long to load. Tap the orb to retry.");
+        if (closedRef.current || generation !== playbackGeneration.current) return;
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
+        audioSourceRef.current = source;
+        source.onended = () => {
+          if (generation !== playbackGeneration.current || closedRef.current) return;
+          pendingAudioRef.current = null;
+          stopPlayback();
+          void beginListening();
+        };
+        source.start();
+        setPhaseSafe("speaking");
+      } catch {
+        if (closedRef.current || generation !== playbackGeneration.current) return;
         stopPlayback();
-        if (!closedRef.current) beginListening();
-      };
-      audio.onerror = () => {
-        stopPlayback();
-        if (closedRef.current) return;
-        setErrorMsg("Audio playback was unavailable. Tap the orb to try again.");
+        setErrorStage("playback");
+        setErrorMsg("Tap the orb to play the reply again. Your conversation is saved on this screen.");
         setPhaseSafe("error");
-      };
-      audio.play().catch((error: unknown) => {
-        // Keep the failure visible. Silently returning to listening made it
-        // look as if the backend had never produced a voice response.
-        stopPlayback();
-        if (closedRef.current) return;
-        const reason = error instanceof DOMException && error.name === "NotAllowedError"
-          ? "Tap the orb once to allow audio, then try again."
-          : "Audio playback was unavailable. Tap the orb to try again.";
-        setErrorMsg(reason);
-        setPhaseSafe("error");
-      });
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [setPhaseSafe, stopPlayback],
@@ -157,7 +153,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
       try {
         // Transcription is its own visible step. The user's words should
         // appear before answer generation or audio playback finishes.
-        const { transcript } = await transcribeVoice(blob);
+        const { transcript } = await transcribeVoice(blob, undefined, controller.signal);
         if (closedRef.current || controller.signal.aborted) return;
         const userTurn: ChatMsg = { role: "user", content: transcript };
         const withUserTurn = [...historyRef.current, userTurn];
@@ -171,7 +167,9 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
         ];
         historyRef.current = nextTurns;
         setTurns(nextTurns);
-        playReply(resp.audio_b64, resp.mime || "audio/wav");
+        const binary = atob(resp.audio_b64);
+        const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+        void playReply(bytes.buffer);
       } catch (e) {
         if (closedRef.current || (e as Error).name === "AbortError") return;
         const msg = (e as Error).message || "Something went wrong";
@@ -180,7 +178,8 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
           beginListening();
           return;
         }
-        setErrorMsg(msg);
+        setErrorStage("request");
+        setErrorMsg("I couldn’t finish that voice turn. Tap the orb to speak again, or type below.");
         setPhaseSafe("error");
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
@@ -194,23 +193,32 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
     if (closedRef.current) return;
     if (mutedRef.current) { setPhaseSafe("listening"); return; }
     const generation = ++listeningGeneration.current;
+    const isCurrent = () => !closedRef.current && !mutedRef.current && generation === listeningGeneration.current;
     setErrorMsg(null);
+    setPhaseSafe("starting");
+    let stage: "microphone" | "activation" = "activation";
     try {
-      if (!streamRef.current) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (closedRef.current || mutedRef.current || generation !== listeningGeneration.current) { stream.getTracks().forEach(t => t.stop()); return; }
-        streamRef.current = stream;
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        stage = "microphone";
+        throw new Error("This browser cannot record audio. Try Safari or Chrome over HTTPS.");
       }
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioContext();
-        const src = audioCtxRef.current.createMediaStreamSource(streamRef.current);
-        const analyser = audioCtxRef.current.createAnalyser();
+      const context = audioCtxRef.current ?? (audioCtxRef.current = new AudioContext());
+      // Activate output before requesting permission: an orb tap's user gesture
+      // is no longer available after awaiting getUserMedia in Safari.
+      await withVoiceTimeout(context.resume(), 5000, "Tap the orb to activate voice audio.");
+      if (!isCurrent()) return;
+      stage = "microphone";
+      if (!streamRef.current) {
+        streamRef.current = await requestVoiceMicrophone(isCurrent);
+      }
+      if (!isCurrent()) return;
+      if (!analyserRef.current) {
+        const src = context.createMediaStreamSource(streamRef.current);
+        const analyser = context.createAnalyser();
         analyser.fftSize = 1024;
         src.connect(analyser);
         analyserRef.current = analyser;
       }
-      if (audioCtxRef.current.state === "suspended") await audioCtxRef.current.resume();
-      if (closedRef.current || mutedRef.current || generation !== listeningGeneration.current) return;
 
       const { rec: recMime, send: sendMime } = pickMime();
       const rec = recMime
@@ -254,6 +262,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
         if (!s.started) {
           if (rms >= SPEECH_START_RMS) {
             s.started = true;
+            s.begunAt = now;
             s.lastLoud = now;
           }
         } else {
@@ -267,7 +276,13 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
       }, 90);
     } catch (e) {
       if (closedRef.current || generation !== listeningGeneration.current) return;
-      setErrorMsg("Microphone unavailable: " + (e as Error).message);
+      setErrorStage(stage);
+      const name = (e as Error).name;
+      setErrorMsg(stage === "activation" ? "Tap the orb to activate voice audio."
+        : name === "NotAllowedError" ? "Allow microphone access in your browser, then tap the orb to retry."
+        : name === "NotFoundError" ? "Connect a microphone, then tap the orb to retry."
+        : name === "NotReadableError" ? "Your microphone is busy or unavailable. Close other recording apps, then retry."
+        : "Microphone access didn’t finish. Check browser permissions, then tap the orb to retry.");
       setPhaseSafe("error");
     }
   }, [sendUtterance, setPhaseSafe, stopMeter]);
@@ -285,15 +300,17 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
     if (p === "speaking") {
       // Interrupt the reply and talk again.
       stopPlayback();
+      pendingAudioRef.current = null;
       void beginListening();
     } else if (p === "listening") {
       // End the turn early if something was said.
       if (speech.current.started && recRef.current?.state === "recording") {
         recRef.current.stop();
       }
-    } else if (p === "error") {
+    } else if (p === "error" || p === "starting") {
       setErrorMsg(null);
-      void beginListening();
+      if (pendingAudioRef.current) void playReply(pendingAudioRef.current);
+      else void beginListening();
     }
   }
 
@@ -336,6 +353,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
     if (!query || phaseRef.current === "thinking") return;
     pauseRecording();
     stopPlayback();
+    pendingAudioRef.current = null;
     setDraft("");
     setErrorMsg(null);
     setPhaseSafe("thinking");
@@ -357,13 +375,13 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
       historyRef.current = [...previous, userTurn, reply];
       const blob = await ttsSpeak(reply.content, controller.signal);
       if (controller.signal.aborted || closedRef.current) return;
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      playReply(btoa(binary), blob.type || "audio/wav");
-    } catch (error) {
+      const bytes = await blob.arrayBuffer();
+      if (controller.signal.aborted || closedRef.current) return;
+      void playReply(bytes);
+    } catch {
       if (closedRef.current || controller.signal.aborted) return;
-      setErrorMsg((error as Error).message || "Unable to reply. Please try again.");
+      setErrorStage("request");
+      setErrorMsg("I couldn’t complete the spoken reply. You can type another message or tap the orb to speak.");
       setPhaseSafe("error");
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
@@ -418,10 +436,10 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
           <div className={`voice-status ${phase === "error" ? "error" : ""}`} role="status">
             {phase === "error" ? (
               <span className="voice-error-message">
-                <strong>Voice mode couldn’t start</strong>
-                <small>Check microphone access, then tap the orb to try again.</small>
+                <strong>{errorStage === "playback" ? "Reply audio paused" : errorStage === "request" ? "Voice reply interrupted" : errorStage === "activation" ? "Tap to start voice" : "Microphone unavailable"}</strong>
+                <small>{errorMsg}</small>
               </span>
-            ) : muted && phase === "listening" ? "Microphone muted" : phase === "thinking" ? "Thinking…" : phase === "starting" ? "Connecting…" : ""}
+            ) : muted && phase === "listening" ? "Microphone muted" : phase === "thinking" ? "Thinking…" : phase === "starting" ? "Starting voice… Tap the orb if needed" : ""}
           </div>
         </div>
         <form className="voice-composer" onSubmit={sendText}>

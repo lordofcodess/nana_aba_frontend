@@ -146,11 +146,12 @@ async function jpost<T>(path: string, body: unknown): Promise<T> {
   return r.json();
 }
 
-async function fpost<T>(path: string, fd: FormData): Promise<T> {
+async function fpost<T>(path: string, fd: FormData, signal?: AbortSignal): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     body: fd,
     headers: authHeaders(),
+    signal,
   });
   if (!r.ok) return handleAuthFailure(r);
   return r.json();
@@ -220,10 +221,10 @@ export async function ragChatStream(
 }
 
 /** Transcribe a voice recording to text (no answer generated). */
-export function transcribeVoice(blob: Blob, filename = "voice.webm") {
+export function transcribeVoice(blob: Blob, filename?: string, signal?: AbortSignal) {
   const fd = new FormData();
-  fd.append("file", blob, filename);
-  return fpost<{ transcript: string }>("/transcribe", fd);
+  fd.append("file", blob, filename ?? (blob.type.includes("mp4") ? "voice.m4a" : "voice.webm"));
+  return fpost<{ transcript: string }>("/transcribe", fd, signal);
 }
 
 export const ragRetrieve = (query: string, topK = 10) =>
