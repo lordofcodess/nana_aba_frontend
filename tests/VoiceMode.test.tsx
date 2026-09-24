@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import VoiceMode from "../src/VoiceMode";
-import { ragChatStream, ttsSpeak } from "../src/api";
+import { ragChatStream, ttsSpeak, voiceConverse, transcribeVoice } from "../src/api";
 
 vi.mock("../src/api", () => ({
   transcribeVoice: vi.fn(), voiceConverse: vi.fn(),
@@ -16,6 +16,7 @@ const start = vi.fn();
 const stopTrack = vi.fn();
 const getUserMedia = vi.fn();
 const recording = vi.fn();
+let microphoneSample = 128;
 const stream = { getTracks: () => [{ stop: stopTrack }], getAudioTracks: () => [{ enabled: true }] } as unknown as MediaStream;
 
 class TestAudioContext {
@@ -25,14 +26,20 @@ class TestAudioContext {
   close = vi.fn().mockResolvedValue(undefined);
   decodeAudioData = decode;
   createMediaStreamSource = () => ({ connect: vi.fn() });
-  createAnalyser = () => ({ fftSize: 1024, getByteTimeDomainData: (data: Uint8Array) => data.fill(128) });
+  createAnalyser = () => ({ fftSize: 1024, getByteTimeDomainData: (data: Uint8Array) => data.fill(microphoneSample) });
   createBufferSource = () => ({ buffer: null, connect: vi.fn(), disconnect: vi.fn(), start, stop: vi.fn(), onended: null });
 }
 class TestRecorder {
   static isTypeSupported = () => true;
   state = "inactive";
+  ondataavailable: ((event: { data: Blob }) => void) | null = null;
+  onstop: (() => void) | null = null;
   start() { this.state = "recording"; recording(); }
-  stop() { this.state = "inactive"; }
+  stop() {
+    this.state = "inactive";
+    this.ondataavailable?.({ data: new Blob([new Uint8Array(5000)], { type: "audio/webm" }) });
+    this.onstop?.();
+  }
 }
 
 async function flush() { await act(async () => { await Promise.resolve(); }); }
@@ -50,6 +57,7 @@ async function typeMessage() {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
+  microphoneSample = 128;
   resume.mockResolvedValue(undefined);
   decode.mockResolvedValue({});
   getUserMedia.mockResolvedValue(stream);
@@ -140,5 +148,39 @@ describe("voice startup and playback recovery", () => {
     view.unmount();
     await act(async () => { resolve({} as AudioBuffer); });
     expect(start).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("recorded voice turns", () => {
+  it("shows the request failure instead of hiding it behind a generic message", async () => {
+    vi.mocked(voiceConverse).mockRejectedValue(new Error("Voice service unavailable (503)"));
+    openVoice();
+    await flush();
+    microphoneSample = 144;
+    await act(async () => { await vi.advanceTimersByTimeAsync(90); });
+    microphoneSample = 128;
+    await act(async () => { await vi.advanceTimersByTimeAsync(1530); });
+    expect(screen.getByText("Voice reply interrupted")).toBeTruthy();
+    expect(screen.getByText(/Voice service unavailable \(503\)/)).toBeTruthy();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("uses the original combined endpoint without depending on separate transcription", async () => {
+    vi.mocked(voiceConverse).mockResolvedValue({
+      transcript: "Where is the library?", answer: "The library is on campus.",
+      audio_b64: "AAAA", mime: "audio/wav", sample_rate: 24000, via_web: false,
+    });
+    openVoice();
+    await flush();
+    microphoneSample = 144;
+    await act(async () => { await vi.advanceTimersByTimeAsync(90); });
+    microphoneSample = 128;
+    await act(async () => { await vi.advanceTimersByTimeAsync(1530); });
+    expect(voiceConverse).toHaveBeenCalledOnce();
+    expect(transcribeVoice).not.toHaveBeenCalled();
+    expect(screen.getByText("Where is the library?")).toBeTruthy();
+    expect(screen.getByText("The library is on campus.")).toBeTruthy();
+    expect(start).toHaveBeenCalledOnce();
   });
 });

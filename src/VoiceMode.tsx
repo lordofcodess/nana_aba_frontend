@@ -7,7 +7,7 @@
 // the regular text-chat thread.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { voiceConverse, transcribeVoice, ragChatStream, ttsSpeak, type ChatMsg } from "./api";
+import { voiceConverse, ragChatStream, ttsSpeak, type ChatMsg } from "./api";
 import "./VoiceMode.css";
 import { requestVoiceMicrophone, withVoiceTimeout } from "./voiceRuntime";
 
@@ -151,18 +151,12 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        // Transcription is its own visible step. The user's words should
-        // appear before answer generation or audio playback finishes.
-        const { transcript } = await transcribeVoice(blob, undefined, controller.signal);
-        if (closedRef.current || controller.signal.aborted) return;
-        const userTurn: ChatMsg = { role: "user", content: transcript };
-        const withUserTurn = [...historyRef.current, userTurn];
-        setTurns(withUserTurn);
+        // This endpoint already transcribes, answers, and generates audio.
         const resp = await voiceConverse(blob, historyRef.current, controller.signal);
         if (closedRef.current || controller.signal.aborted) return;
         const nextTurns: ChatMsg[] = [
-          ...withUserTurn.slice(0, -1),
-          { role: "user", content: resp.transcript || transcript },
+          ...historyRef.current,
+          { role: "user", content: resp.transcript },
           { role: "assistant", content: resp.answer, citations: resp.citations ?? [], via_web: resp.via_web },
         ];
         historyRef.current = nextTurns;
@@ -179,7 +173,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
           return;
         }
         setErrorStage("request");
-        setErrorMsg("I couldn’t finish that voice turn. Tap the orb to speak again, or type below.");
+        setErrorMsg(`I couldn’t finish that voice turn: ${msg}. Tap the orb to speak again, or type below.`);
         setPhaseSafe("error");
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
