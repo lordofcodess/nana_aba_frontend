@@ -297,8 +297,9 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
       pendingAudioRef.current = null;
       void beginListening();
     } else if (p === "listening") {
-      // End the turn early if something was said.
-      if (speech.current.started && recRef.current?.state === "recording") {
+      // An explicit send must work even when quiet speech misses the detector.
+      if (!mutedRef.current && recRef.current?.state === "recording") {
+        speech.current.started = true;
         recRef.current.stop();
       }
     } else if (p === "error" || p === "starting") {
@@ -433,7 +434,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
                 <strong>{errorStage === "playback" ? "Reply audio paused" : errorStage === "request" ? "Voice reply interrupted" : errorStage === "activation" ? "Tap to start voice" : "Microphone unavailable"}</strong>
                 <small>{errorMsg}</small>
               </span>
-            ) : muted && phase === "listening" ? "Microphone muted" : phase === "thinking" ? "Thinking…" : phase === "starting" ? "Starting voice… Tap the orb if needed" : ""}
+            ) : muted && phase === "listening" ? "Microphone muted" : phase === "thinking" ? "Thinking…" : phase === "starting" ? "Starting voice… Tap the orb if needed" : phase === "listening" ? "Listening — speak, then pause. Tap the orb to send." : ""}
           </div>
         </div>
         <form className="voice-composer" onSubmit={sendText}>

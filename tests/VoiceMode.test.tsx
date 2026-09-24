@@ -166,6 +166,23 @@ describe("recorded voice turns", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("lets the user send quiet speech without waiting for automatic detection", async () => {
+    vi.mocked(voiceConverse).mockResolvedValue({
+      transcript: "A quiet question", answer: "Here is your answer.",
+      audio_b64: "AAAA", mime: "audio/wav", sample_rate: 24000, via_web: false,
+    });
+    openVoice();
+    await flush();
+    microphoneSample = 130;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(voiceConverse).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Listening — go ahead" }));
+    await flush();
+    expect(voiceConverse).toHaveBeenCalledOnce();
+    expect(screen.getByText("A quiet question")).toBeTruthy();
+    expect(start).toHaveBeenCalledOnce();
+  });
+
   it("uses the original combined endpoint without depending on separate transcription", async () => {
     vi.mocked(voiceConverse).mockResolvedValue({
       transcript: "Where is the library?", answer: "The library is on campus.",
