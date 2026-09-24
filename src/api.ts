@@ -236,6 +236,7 @@ export type VoiceConverseResp = {
   audio_b64: string;
   mime: string;
   sample_rate: number;
+  citations?: Citation[];
 };
 
 /** Full voice-to-voice turn: audio in → {transcript, answer, spoken reply}. */

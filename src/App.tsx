@@ -1421,20 +1421,9 @@ export default function App() {
       )}
       {voiceOpen && (
         <VoiceMode
-          history={messages}
-          onExchange={(userText, assistantText, viaWeb) =>
-            mutateActive((prev) => [
-              ...prev,
-              { role: "user", content: userText },
-              {
-                role: "assistant",
-                content: assistantText,
-                citations: [],
-                via_web: viaWeb,
-              },
-            ])
-          }
           onClose={() => setVoiceOpen(false)}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(open => !open)}
         />
       )}
     </div>

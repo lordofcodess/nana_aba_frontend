@@ -3,18 +3,19 @@
 // Loop: auto-listen → detect end of speech (silence) → send audio to
 // /voice/converse → play the spoken reply → auto-listen again. Tap the orb to
 // interrupt (while speaking) or end your turn early (while talking). X exits.
-// Each exchange is pushed into the main chat thread via onExchange.
+// Voice mode owns its own short-lived conversation. It never reads or mutates
+// the regular text-chat thread.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { voiceConverse, type ChatMsg } from "./api";
+import { voiceConverse, ragChatStream, ttsSpeak, type ChatMsg } from "./api";
 import "./VoiceMode.css";
 
 type Phase = "starting" | "listening" | "thinking" | "speaking" | "error";
 
 interface Props {
-  history: ChatMsg[];
-  onExchange: (userText: string, assistantText: string, viaWeb: boolean) => void;
   onClose: () => void;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
 }
 
 // Silence-detection tuning (RMS of the time-domain signal, 0..1 scale).
@@ -32,11 +33,16 @@ function pickMime(): { rec: string | undefined; send: string } {
   return { rec, send: rec?.includes("mp4") ? "audio/mp4" : "audio/webm" };
 }
 
-export default function VoiceMode({ history, onExchange, onClose }: Props) {
+export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Props) {
   const [phase, setPhase] = useState<Phase>("starting");
   const [level, setLevel] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [caption, setCaption] = useState<string>("");
+  const [draft, setDraft] = useState("");
+  const [muted, setMuted] = useState(false);
+  const mutedRef = useRef(false);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState<number | null>(null);
+  const [turns, setTurns] = useState<ChatMsg[]>([]);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recRef = useRef<MediaRecorder | null>(null);
@@ -49,13 +55,10 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
   const abortRef = useRef<AbortController | null>(null);
   const closedRef = useRef(false);
   const phaseRef = useRef<Phase>("starting");
-  const historyRef = useRef<ChatMsg[]>(history);
+  const historyRef = useRef<ChatMsg[]>([]);
   const speech = useRef({ started: false, lastLoud: 0, begunAt: 0 });
   const discardRef = useRef(false);
-
-  useEffect(() => {
-    historyRef.current = history;
-  }, [history]);
+  const listeningGeneration = useRef(0);
 
   const setPhaseSafe = useCallback((p: Phase) => {
     phaseRef.current = p;
@@ -92,6 +95,7 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
 
   const teardown = useCallback(() => {
     closedRef.current = true;
+    listeningGeneration.current++;
     stopMeter();
     stopPlayback();
     abortRef.current?.abort();
@@ -136,14 +140,18 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
   const sendUtterance = useCallback(
     async (blob: Blob) => {
       setPhaseSafe("thinking");
-      setCaption("");
       const controller = new AbortController();
       abortRef.current = controller;
       try {
         const resp = await voiceConverse(blob, historyRef.current, controller.signal);
         if (closedRef.current || controller.signal.aborted) return;
-        setCaption(resp.answer);
-        onExchange(resp.transcript, resp.answer, resp.via_web);
+        const nextTurns: ChatMsg[] = [
+          ...historyRef.current,
+          { role: "user", content: resp.transcript },
+          { role: "assistant", content: resp.answer, citations: resp.citations ?? [], via_web: resp.via_web },
+        ];
+        historyRef.current = nextTurns;
+        setTurns(nextTurns);
         playReply(resp.audio_b64, resp.mime || "audio/wav");
       } catch (e) {
         if (closedRef.current || (e as Error).name === "AbortError") return;
@@ -160,15 +168,19 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [onExchange, playReply, setPhaseSafe],
+    [playReply, setPhaseSafe],
   );
 
   const beginListening = useCallback(async () => {
     if (closedRef.current) return;
+    if (mutedRef.current) { setPhaseSafe("listening"); return; }
+    const generation = ++listeningGeneration.current;
     setErrorMsg(null);
     try {
       if (!streamRef.current) {
-        streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (closedRef.current || mutedRef.current || generation !== listeningGeneration.current) { stream.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
       }
       if (!audioCtxRef.current) {
         audioCtxRef.current = new AudioContext();
@@ -179,6 +191,7 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
         analyserRef.current = analyser;
       }
       if (audioCtxRef.current.state === "suspended") await audioCtxRef.current.resume();
+      if (closedRef.current || mutedRef.current || generation !== listeningGeneration.current) return;
 
       const { rec: recMime, send: sendMime } = pickMime();
       const rec = recMime
@@ -234,10 +247,10 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
         }
       }, 90);
     } catch (e) {
+      if (closedRef.current || generation !== listeningGeneration.current) return;
       setErrorMsg("Microphone unavailable: " + (e as Error).message);
       setPhaseSafe("error");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendUtterance, setPhaseSafe, stopMeter]);
 
   // Start on mount; full cleanup on unmount.
@@ -270,6 +283,74 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
     onClose();
   }
 
+  useEffect(() => {
+    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
+  }, [turns]);
+
+  function pauseRecording() {
+    listeningGeneration.current++;
+    stopMeter();
+    const recorder = recRef.current;
+    if (recorder) {
+      recorder.onstop = null;
+      recorder.ondataavailable = null;
+      if (recorder.state !== "inactive") recorder.stop();
+    }
+    setLevel(0);
+  }
+
+  function toggleMute() {
+    const next = !mutedRef.current;
+    mutedRef.current = next;
+    setMuted(next);
+    streamRef.current?.getAudioTracks().forEach(track => { track.enabled = !next; });
+    if (next) {
+      pauseRecording();
+      if (phaseRef.current === "starting") setPhaseSafe("listening");
+    }
+    else if (phaseRef.current === "listening" || phaseRef.current === "error") void beginListening();
+  }
+
+  async function sendText(event: React.FormEvent) {
+    event.preventDefault();
+    const query = draft.trim();
+    if (!query || phaseRef.current === "thinking") return;
+    pauseRecording();
+    stopPlayback();
+    setDraft("");
+    setErrorMsg(null);
+    setPhaseSafe("thinking");
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const previous = historyRef.current;
+    const userTurn: ChatMsg = { role: "user", content: query };
+    let reply: ChatMsg = { role: "assistant", content: "" };
+    setTurns([...previous, userTurn]);
+    try {
+      await ragChatStream(query, previous, "fast", event => {
+        if (controller.signal.aborted || closedRef.current) return;
+        if (event.type === "delta") reply = { ...reply, content: reply.content + event.text };
+        if (event.type === "replace") reply = { ...reply, content: event.text };
+        if (event.type === "meta") reply = { ...reply, citations: event.citations, via_web: event.via_web };
+        setTurns([...previous, userTurn, reply]);
+      }, controller.signal);
+      if (controller.signal.aborted || closedRef.current) return;
+      historyRef.current = [...previous, userTurn, reply];
+      const blob = await ttsSpeak(reply.content, controller.signal);
+      if (controller.signal.aborted || closedRef.current) return;
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      playReply(btoa(binary), blob.type || "audio/wav");
+    } catch (error) {
+      if (closedRef.current || controller.signal.aborted) return;
+      setErrorMsg((error as Error).message || "Unable to reply. Please try again.");
+      setPhaseSafe("error");
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+    }
+  }
+
   const label =
     phase === "starting"
       ? "Starting…"
@@ -285,36 +366,55 @@ export default function VoiceMode({ history, onExchange, onClose }: Props) {
     phase === "listening" ? 1 + Math.min(level * 2.2, 0.45) : 1;
 
   return (
-    <div className="voice-overlay" role="dialog" aria-label="Voice conversation">
-      <button className="voice-close" onClick={handleClose} aria-label="Exit voice mode">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <path d="M18 6 6 18M6 6l12 12" />
-        </svg>
-      </button>
-
-      <div className="voice-center">
-        <button
-          className={`voice-orb ${phase}`}
-          style={{ transform: `scale(${orbScale})` }}
-          onClick={handleOrbTap}
-          aria-label={label}
-        />
-        <div className={`voice-status ${phase === "error" ? "error" : ""}`}>{label}</div>
-        {caption && phase === "speaking" && (
-          <div className="voice-caption">{caption}</div>
+    <section className="voice-overlay" aria-label="Nana Aba Voice">
+      <header className="voice-header">
+        {!sidebarOpen && (
+          <button className="voice-icon" type="button" onClick={onToggleSidebar} aria-label="Show sidebar" aria-expanded={false} title="Show sidebar">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></svg>
+          </button>
         )}
+        <h1>Nana Aba <span>Voice</span></h1>
+      </header>
+      <div className="voice-transcript" ref={transcriptRef} role="log" aria-label="Voice conversation">
+        <div className="voice-messages">
+          {turns.map((turn, index) => (
+            <div className={`voice-turn ${turn.role}`} key={`${turn.role}-${index}`}>
+              <p>{turn.content}</p>
+              {turn.role === "assistant" && turn.content && (
+                <button className="voice-copy voice-icon" aria-label={copied === index ? "Copied" : "Copy reply"} title={copied === index ? "Copied" : "Copy reply"}
+                  onClick={() => { void navigator.clipboard.writeText(turn.content).then(() => setCopied(index)).catch(() => setCopied(null)); }}>
+                  {copied === index ? <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></svg> : <svg viewBox="0 0 24 24"><rect x="4" y="7" width="13" height="14" rx="3" /><path d="M8 7V5a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3" /></svg>}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
-
-      <div className="voice-hint">
-        {phase === "listening"
-          ? "Speak, then pause — I'll answer. Tap the orb to send now."
-          : phase === "speaking"
-            ? ""
-            : phase === "thinking"
-              ? "Working on it…"
-              : ""}
+      <div className="voice-dock">
+        <div className="voice-center">
+          <button className={`voice-orb ${phase} ${muted ? "muted" : ""}`} style={{ transform: `scale(${orbScale})` }} onClick={handleOrbTap}
+            aria-label={muted && phase === "listening" ? "Microphone muted" : label} title={label}>
+            <span className="voice-orb-cloud" />
+          </button>
+          <div className={`voice-status ${phase === "error" ? "error" : ""}`} role="status">
+            {phase === "error" ? (
+              <span className="voice-error-message">
+                <strong>Voice mode couldn’t start</strong>
+                <small>Check microphone access, then tap the orb to try again.</small>
+              </span>
+            ) : muted && phase === "listening" ? "Microphone muted" : phase === "thinking" ? "Thinking…" : phase === "starting" ? "Connecting…" : ""}
+          </div>
+        </div>
+        <form className="voice-composer" onSubmit={sendText}>
+          <input value={draft} onChange={event => setDraft(event.target.value)} placeholder="Type" aria-label="Message Nana Aba in this voice conversation" />
+          {draft.trim() && <button className="voice-icon" type="submit" disabled={phase === "thinking"} aria-label="Send message"><svg viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>}
+          <button className={`voice-icon voice-mic ${muted ? "is-muted" : ""}`} type="button" onClick={toggleMute} aria-label={muted ? "Unmute microphone" : "Mute microphone"} aria-pressed={muted}>
+            <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6" />{muted && <path className="voice-mic-slash" d="M3 3l18 18" />}</svg>
+          </button>
+          <button className="voice-close voice-icon" type="button" onClick={handleClose} aria-label="End voice conversation"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+        </form>
       </div>
-    </div>
+    </section>
   );
 }
 
