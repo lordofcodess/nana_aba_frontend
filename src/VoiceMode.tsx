@@ -7,7 +7,7 @@
 // the regular text-chat thread.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { voiceConverse, ragChatStream, ttsSpeak, type ChatMsg } from "./api";
+import { voiceConverse, transcribeVoice, ragChatStream, ttsSpeak, type ChatMsg } from "./api";
 import "./VoiceMode.css";
 
 type Phase = "starting" | "listening" | "thinking" | "speaking" | "error";
@@ -127,10 +127,22 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
         stopPlayback();
         if (!closedRef.current) beginListening();
       };
-      audio.play().catch(() => {
-        // Autoplay refused (shouldn't happen — user gestured to open the mode)
+      audio.onerror = () => {
         stopPlayback();
-        if (!closedRef.current) beginListening();
+        if (closedRef.current) return;
+        setErrorMsg("Audio playback was unavailable. Tap the orb to try again.");
+        setPhaseSafe("error");
+      };
+      audio.play().catch((error: unknown) => {
+        // Keep the failure visible. Silently returning to listening made it
+        // look as if the backend had never produced a voice response.
+        stopPlayback();
+        if (closedRef.current) return;
+        const reason = error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Tap the orb once to allow audio, then try again."
+          : "Audio playback was unavailable. Tap the orb to try again.";
+        setErrorMsg(reason);
+        setPhaseSafe("error");
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -143,11 +155,18 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
       const controller = new AbortController();
       abortRef.current = controller;
       try {
+        // Transcription is its own visible step. The user's words should
+        // appear before answer generation or audio playback finishes.
+        const { transcript } = await transcribeVoice(blob);
+        if (closedRef.current || controller.signal.aborted) return;
+        const userTurn: ChatMsg = { role: "user", content: transcript };
+        const withUserTurn = [...historyRef.current, userTurn];
+        setTurns(withUserTurn);
         const resp = await voiceConverse(blob, historyRef.current, controller.signal);
         if (closedRef.current || controller.signal.aborted) return;
         const nextTurns: ChatMsg[] = [
-          ...historyRef.current,
-          { role: "user", content: resp.transcript },
+          ...withUserTurn.slice(0, -1),
+          { role: "user", content: resp.transcript || transcript },
           { role: "assistant", content: resp.answer, citations: resp.citations ?? [], via_web: resp.via_web },
         ];
         historyRef.current = nextTurns;
