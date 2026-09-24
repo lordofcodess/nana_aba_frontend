@@ -158,7 +158,7 @@ describe("recorded voice turns", () => {
     openVoice();
     await flush();
     microphoneSample = 144;
-    await act(async () => { await vi.advanceTimersByTimeAsync(90); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(270); });
     microphoneSample = 128;
     await act(async () => { await vi.advanceTimersByTimeAsync(1530); });
     expect(screen.getByText("Voice reply interrupted")).toBeTruthy();
@@ -176,11 +176,40 @@ describe("recorded voice turns", () => {
     microphoneSample = 130;
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(voiceConverse).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Listening — go ahead" }));
+    fireEvent.click(screen.getByRole("button", { name: "Listening…" }));
     await flush();
     expect(voiceConverse).toHaveBeenCalledOnce();
     expect(screen.getByText("A quiet question")).toBeTruthy();
     expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("automatically sends quiet speech after a pause without a tap", async () => {
+    vi.mocked(voiceConverse).mockResolvedValue({
+      transcript: "A quiet question", answer: "Here is your answer.",
+      audio_b64: "AAAA", mime: "audio/wav", sample_rate: 24000, via_web: false,
+    });
+    openVoice();
+    await flush();
+    microphoneSample = 130; // RMS 0.0156: below the old detection threshold
+    await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+    microphoneSample = 128;
+    await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+    expect(voiceConverse).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(630); });
+    expect(voiceConverse).toHaveBeenCalledOnce();
+    expect(screen.getByText("A quiet question")).toBeTruthy();
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("does not send silence or a brief noise spike", async () => {
+    openVoice();
+    await flush();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    microphoneSample = 144;
+    await act(async () => { await vi.advanceTimersByTimeAsync(90); });
+    microphoneSample = 128;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(voiceConverse).not.toHaveBeenCalled();
   });
 
   it("uses the original combined endpoint without depending on separate transcription", async () => {
@@ -191,7 +220,7 @@ describe("recorded voice turns", () => {
     openVoice();
     await flush();
     microphoneSample = 144;
-    await act(async () => { await vi.advanceTimersByTimeAsync(90); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(270); });
     microphoneSample = 128;
     await act(async () => { await vi.advanceTimersByTimeAsync(1530); });
     expect(voiceConverse).toHaveBeenCalledOnce();

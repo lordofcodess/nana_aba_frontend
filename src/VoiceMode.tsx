@@ -20,8 +20,9 @@ interface Props {
 }
 
 // Silence-detection tuning (RMS of the time-domain signal, 0..1 scale).
-const SPEECH_START_RMS = 0.045;
-const SPEECH_KEEP_RMS = 0.022;
+const SPEECH_START_RMS = 0.012;
+const SPEECH_KEEP_RMS = 0.008;
+const SPEECH_START_FRAMES = 3; // require sustained sound, not a single click
 const SILENCE_MS = 1400; // this long below KEEP after speech started → send
 const MAX_UTTERANCE_MS = 30_000;
 const MIN_BLOB_BYTES = 4000; // ignore accidental blips
@@ -59,7 +60,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
   const closedRef = useRef(false);
   const phaseRef = useRef<Phase>("starting");
   const historyRef = useRef<ChatMsg[]>([]);
-  const speech = useRef({ started: false, lastLoud: 0, begunAt: 0 });
+  const speech = useRef({ started: false, loudFrames: 0, lastLoud: 0, begunAt: 0 });
   const discardRef = useRef(false);
   const listeningGeneration = useRef(0);
 
@@ -233,7 +234,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
         void sendUtterance(blob);
       };
       recRef.current = rec;
-      speech.current = { started: false, lastLoud: 0, begunAt: Date.now() };
+      speech.current = { started: false, loudFrames: 0, lastLoud: 0, begunAt: Date.now() };
       rec.start();
       setPhaseSafe("listening");
 
@@ -254,7 +255,8 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
         const now = Date.now();
         const s = speech.current;
         if (!s.started) {
-          if (rms >= SPEECH_START_RMS) {
+          s.loudFrames = rms >= SPEECH_START_RMS ? s.loudFrames + 1 : 0;
+          if (s.loudFrames >= SPEECH_START_FRAMES) {
             s.started = true;
             s.begunAt = now;
             s.lastLoud = now;
@@ -434,7 +436,7 @@ export default function VoiceMode({ onClose, sidebarOpen, onToggleSidebar }: Pro
                 <strong>{errorStage === "playback" ? "Reply audio paused" : errorStage === "request" ? "Voice reply interrupted" : errorStage === "activation" ? "Tap to start voice" : "Microphone unavailable"}</strong>
                 <small>{errorMsg}</small>
               </span>
-            ) : muted && phase === "listening" ? "Microphone muted" : phase === "thinking" ? "Thinking…" : phase === "starting" ? "Starting voice… Tap the orb if needed" : phase === "listening" ? "Listening — speak, then pause. Tap the orb to send." : ""}
+            ) : muted && phase === "listening" ? "Microphone muted" : phase === "thinking" ? "Thinking…" : phase === "starting" ? "Starting voice… Tap the orb if needed" : phase === "listening" ? "Listening — speak naturally, then pause for a reply." : ""}
           </div>
         </div>
         <form className="voice-composer" onSubmit={sendText}>
