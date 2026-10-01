@@ -637,11 +637,15 @@ export default function App() {
       setThreadBusy(tid, true);
       try {
         const resp = await analyzeDocument(f, notes || undefined);
-        const labelMap = { transcript: "transcript", cv: "CV", other: "document" } as const;
+        const labelMap = { admission_results: "WASSCE/SSSCE results", transcript: "transcript", cv: "CV", other: "document" } as const;
         const heading = `*Detected: ${labelMap[resp.doc_type]}.*\n\n`;
         mutateActive((prev) => [
           ...prev,
-          { role: "assistant", content: heading + resp.advice },
+          {
+            role: "assistant",
+            content: heading + resp.advice,
+            historyContent: resp.assistant_history_content,
+          },
         ]);
       } catch (err) {
         setError((err as Error).message);
@@ -919,9 +923,9 @@ export default function App() {
           </select>
           <span aria-hidden="true" className="mode-caret">{ICON.chevron}</span>
         </div>
-        <label className="pill attach-pill" title="Upload a transcript or CV (PDF or image). I'll figure out which it is.">
+        <label className="pill attach-pill" title="Upload WASSCE/SSSCE results, a university transcript, or a CV (PDF or image). I'll figure out which it is.">
           <span className="attach-icon" aria-hidden="true">{ICON.paperclip}</span>
-          <span>Analyze document</span>
+          <span>Analyze results or document</span>
           <input
             type="file"
             accept=".pdf,.png,.jpg,.jpeg,.webp"

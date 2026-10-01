@@ -16,6 +16,8 @@ export type Citation = { uri: string; title: string };
 export type ChatMsg = {
   role: "user" | "assistant";
   content: string;
+  /** Optional structured upload context sent to RAG but never rendered in the chat bubble. */
+  historyContent?: string;
   citations?: Citation[];
   via_web?: boolean;
   /** True when the assistant is asking a clarifying question, not answering. */
@@ -51,7 +53,7 @@ export type RAGChatResp = {
   via_web?: boolean;
 };
 
-export type DocType = "transcript" | "cv" | "other";
+export type DocType = "admission_results" | "transcript" | "cv" | "other";
 
 export type DocumentAnalyzeResp = {
   doc_type: DocType;
@@ -59,6 +61,7 @@ export type DocumentAnalyzeResp = {
   notes: string | null;
   advice: string;
   handbook_chunks_used: number;
+  assistant_history_content?: string;
 };
 
 // Back-compat alias for callers that still reference the old type name
@@ -190,7 +193,7 @@ export async function ragChatStream(
     body: JSON.stringify({
       query,
       mode,
-      history: history.map((m) => ({ role: m.role, content: m.content })),
+      history: history.map((m) => ({ role: m.role, content: m.historyContent ?? m.content })),
     }),
     signal,
   });
@@ -264,7 +267,7 @@ export async function voiceConverse(
   fd.append("file", blob, name);
   fd.append(
     "history",
-    JSON.stringify(history.map((m) => ({ role: m.role, content: m.content }))),
+    JSON.stringify(history.map((m) => ({ role: m.role, content: m.historyContent ?? m.content }))),
   );
   fd.append("mode", "fast");
   const r = await fetch(`${API_BASE}/voice/converse`, {
