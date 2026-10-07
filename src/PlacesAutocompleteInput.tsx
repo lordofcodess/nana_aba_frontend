@@ -120,7 +120,9 @@ export default function PlacesAutocompleteInput({
     if (!places) return;
     try {
       const place = s.raw.toPlace();
-      await place.fetchFields({ fields: ["displayName", "location", "id"] });
+      // Essentials-tier fields only. displayName would bill the lookup as
+      // Place Details Pro; the suggestion already carries the name.
+      await place.fetchFields({ fields: ["location", "id"] });
       const lat = place.location?.lat();
       const lng = place.location?.lng();
       if (lat == null || lng == null) {
@@ -129,7 +131,7 @@ export default function PlacesAutocompleteInput({
       }
       const picked: Picked = {
         placeId: place.id || s.placeId,
-        name: place.displayName || s.mainText,
+        name: s.mainText,
         lat,
         lng,
       };
