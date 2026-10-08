@@ -638,7 +638,8 @@ export default function App() {
       try {
         const resp = await analyzeDocument(f, notes || undefined);
         const labelMap = { admission_results: "WASSCE/SSSCE results", transcript: "transcript", cv: "CV", other: "document" } as const;
-        const heading = `*Detected: ${labelMap[resp.doc_type]}.*\n\n`;
+        // WASSCE reports open straight with the programme advice.
+        const heading = resp.doc_type === "admission_results" ? "" : `*Detected: ${labelMap[resp.doc_type]}.*\n\n`;
         mutateActive((prev) => [
           ...prev,
           {
