@@ -17,7 +17,6 @@ import { getCachedTts, putCachedTts } from "./ttsCache";
 import VoiceMode from "./VoiceMode";
 import DirectionsTab from "./DirectionsTab";
 import LoginCard from "./LoginCard";
-import FeedbackModal from "./FeedbackModal";
 import { useAuth } from "./AuthContext";
 import { setQuotaExceededHandler } from "./api";
 import {
@@ -303,7 +302,6 @@ export default function App() {
   const [renameDraft, setRenameDraft] = useState<string>("");
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginPrompt, setLoginPrompt] = useState<string | null>(null);
-  const [feedbackFormOpen, setFeedbackFormOpen] = useState(false);
   const [quotaToast, setQuotaToast] = useState<string | null>(null);
   const { user: authUser, configured: authConfigured, signOut } = useAuth();
   const recRef = useRef<MediaRecorder | null>(null);
@@ -1120,10 +1118,6 @@ export default function App() {
             )}
           </div>
         )}
-        <button type="button" className="feedback-cta" onClick={() => setFeedbackFormOpen(true)}>
-          {ICON.mail}
-          <span>Send feedback</span>
-        </button>
         <div className="thread-list">
           {tab === "directions"
             ? [...dirThreads]
@@ -1551,12 +1545,6 @@ export default function App() {
           </>
         )}
       </div>
-      {feedbackFormOpen && (
-        <FeedbackModal
-          lastAssistantMessage={[...messages].reverse().find((m) => m.role === "assistant")?.content ?? null}
-          onClose={() => setFeedbackFormOpen(false)}
-        />
-      )}
       {loginOpen && (
         <LoginCard
           prompt={loginPrompt ?? undefined}
