@@ -257,7 +257,7 @@ function DirectionsTabInner({
             aria-label="Open directions threads"
             title="Threads"
           >
-            ☰
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
           </button>
         )}
         <div className="directions-header-title">{active.title}</div>
@@ -267,7 +267,7 @@ function DirectionsTabInner({
           aria-label="New directions thread"
           title="New thread"
         >
-          +
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       </header>
 

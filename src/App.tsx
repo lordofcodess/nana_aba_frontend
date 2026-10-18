@@ -29,6 +29,14 @@ import "./App.css";
 
 type Tab = "chat" | "directions";
 
+const MARKDOWN_COMPONENTS = {
+  table: (props: React.ComponentPropsWithoutRef<"table">) => (
+    <div className="table-scroll" tabIndex={0} role="region" aria-label="Table, scroll sideways for more">
+      <table {...props} />
+    </div>
+  ),
+};
+
 const FEEDBACK_REASONS: { code: FeedbackReason; label: string }[] = [
   { code: "wrong_info", label: "Wrong information" },
   { code: "outdated", label: "Outdated" },
@@ -120,6 +128,16 @@ function formatWhen(ts: number): string {
 }
 
 const ICON = {
+  menu: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  ),
+  plus: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  ),
   panel: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -1000,7 +1018,7 @@ export default function App() {
               : pendingFile
                 ? "Add context for this document (optional) and press send"
                 : recording
-                  ? "Recording… stop the mic to continue"
+                  ? "Recording… tap the mic to stop"
                   : "Ask Nana Aba a question"
           }
           disabled={busy || recording}
@@ -1025,7 +1043,8 @@ export default function App() {
         </div>
         <label className="pill attach-pill" title="Upload WASSCE/SSSCE results, a university transcript, or a CV (PDF or image). I'll figure out which it is.">
           <span className="attach-icon" aria-hidden="true">{ICON.paperclip}</span>
-          <span>Analyze results or document</span>
+          <span className="attach-label-long">Analyze results or document</span>
+          <span className="attach-label-short">Upload</span>
           <input
             type="file"
             accept=".pdf,.png,.jpg,.jpeg,.webp"
@@ -1213,12 +1232,25 @@ export default function App() {
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
           >
-            ☰
+            {ICON.menu}
           </button>
-          <div className="mobile-title">{active.title}</div>
-          <button className="menu-btn" onClick={newThread} aria-label="New thread">
-            +
-          </button>
+          <div className="mobile-tabs" role="tablist" aria-label="Sections">
+            <button type="button" role="tab" aria-selected={tab === "chat"}
+              className={tab === "chat" ? "active" : ""} onClick={() => setTab("chat")}>
+              Chat
+            </button>
+            <button type="button" role="tab" aria-selected={tab === "directions"}
+              className={tab === "directions" ? "active" : ""} onClick={() => setTab("directions")}>
+              Directions
+            </button>
+          </div>
+          {tab === "chat" ? (
+            <button className="menu-btn" onClick={newThread} aria-label="New chat">
+              {ICON.plus}
+            </button>
+          ) : (
+            <span className="menu-btn-spacer" aria-hidden="true" />
+          )}
         </header>
         <nav className="app-tabs" aria-label="Sections">
           {!sidebarOpen && (
@@ -1330,7 +1362,7 @@ export default function App() {
                           <span className="probe-chip">Quick question</span>
                         )}
                         {m.role === "assistant" ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
                             {m.content}
                           </ReactMarkdown>
                         ) : (

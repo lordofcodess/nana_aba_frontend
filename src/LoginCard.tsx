@@ -66,8 +66,8 @@ export default function LoginCard({ prompt, onClose }: Props) {
         </p>
 
         {prompt && (
-          <div className="login-notice" role="alert">
-            <span className="login-notice-icon" aria-hidden="true">!</span>
+          <div className="login-notice info" role="status">
+            <span className="login-notice-icon" aria-hidden="true">i</span>
             <span>{prompt}</span>
           </div>
         )}
