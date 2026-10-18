@@ -1368,26 +1368,7 @@ export default function App() {
                         ) : (
                           m.content
                         )}
-                        {m.role === "assistant" && m.via_web && (
-                          <span className="via-web-badge" title="Answered from the live UG website">
-                            from UG website
-                          </span>
-                        )}
                       </div>
-                    )}
-                    {m.role === "assistant" && m.citations && m.citations.length > 0 && (
-                      <details className="msg-citations">
-                        <summary>Sources ({m.citations.length})</summary>
-                        <ul>
-                          {m.citations.map((c) => (
-                            <li key={c.uri}>
-                              <a href={c.uri} target="_blank" rel="noopener noreferrer">
-                                {c.title}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
                     )}
                     {/* Hide actions on the message currently being streamed —
                         copy/read-aloud on a half-answer is misleading. */}
