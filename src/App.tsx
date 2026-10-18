@@ -439,8 +439,14 @@ export default function App() {
 
   function stopAudio() {
     if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
+      const audio = audioRef.current;
+      // Detach handlers first: clearing the source fires an "error" event,
+      // which used to show "Audio playback failed" whenever playback was stopped.
+      audio.onerror = null;
+      audio.onended = null;
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
       audioRef.current = null;
     }
     if (audioUrlRef.current) {
@@ -679,7 +685,20 @@ export default function App() {
       let blob = ttsCacheRef.current.get(cacheKey) ?? null;
       if (!blob) blob = await getCachedTts(cleaned, "English");
       const fromNetwork = !blob;
-      if (!blob) blob = await ttsSpeak(cleaned, controller.signal);
+      if (!blob) {
+        // The voice server scales to zero; the first request after idle can take
+        // over a minute while a GPU instance starts, and Safari reports
+        // "Load failed" before it answers. Network failures retry while it wakes.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            blob = await ttsSpeak(cleaned, controller.signal);
+            break;
+          } catch (err) {
+            const network = err instanceof TypeError; // fetch network failure ("Load failed")
+            if (!network || attempt >= 2 || controller.signal.aborted) throw err;
+          }
+        }
+      }
       if (controller.signal.aborted) return;
       ttsCacheRef.current.set(cacheKey, blob);
       // Persist only freshly-synthesized audio (IDB hits are already stored).
