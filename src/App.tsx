@@ -6,14 +6,18 @@ import {
   transcribeVoice,
   analyzeDocument,
   ttsSpeak,
+  newMessageId,
+  submitMessageFeedback,
   type ChatMode,
   type ChatMsg,
+  type FeedbackReason,
   type StreamStage,
 } from "./api";
 import { getCachedTts, putCachedTts } from "./ttsCache";
 import VoiceMode from "./VoiceMode";
 import DirectionsTab from "./DirectionsTab";
 import LoginCard from "./LoginCard";
+import FeedbackModal from "./FeedbackModal";
 import { useAuth } from "./AuthContext";
 import { setQuotaExceededHandler } from "./api";
 import {
@@ -25,6 +29,17 @@ import {
 import "./App.css";
 
 type Tab = "chat" | "directions";
+
+const FEEDBACK_REASONS: { code: FeedbackReason; label: string }[] = [
+  { code: "wrong_info", label: "Wrong information" },
+  { code: "outdated", label: "Outdated" },
+  { code: "didnt_answer", label: "Didn't answer my question" },
+  { code: "wrong_programmes", label: "Wrong programme suggestions" },
+  { code: "too_long", label: "Too long" },
+  { code: "other", label: "Other" },
+];
+
+type FeedbackDraft = { threadId: string; idx: number; reasons: FeedbackReason[]; comment: string; sending: boolean };
 
 type Thread = {
   id: string;
@@ -260,6 +275,9 @@ export default function App() {
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Reason picker shown under an answer after a thumbs-down.
+  const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft | null>(null);
+  const [feedbackThanks, setFeedbackThanks] = useState<{ threadId: string; idx: number } | null>(null);
   const [recording, setRecording] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
@@ -285,6 +303,7 @@ export default function App() {
   const [renameDraft, setRenameDraft] = useState<string>("");
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginPrompt, setLoginPrompt] = useState<string | null>(null);
+  const [feedbackFormOpen, setFeedbackFormOpen] = useState(false);
   const [quotaToast, setQuotaToast] = useState<string | null>(null);
   const { user: authUser, configured: authConfigured, signOut } = useAuth();
   const recRef = useRef<MediaRecorder | null>(null);
@@ -452,19 +471,98 @@ export default function App() {
     await send(userMsg);
   }
 
-  function toggleFeedback(idx: number, rating: "like" | "dislike") {
-    const current = messages[idx]?.feedback;
-    const next = current === rating ? undefined : rating;
-    mutateActive((prev) =>
-      prev.map((m, i) => (i !== idx ? m : { ...m, feedback: next })),
-    );
-    if (next === "dislike") {
-      window.open(
-        "https://forms.gle/QeGC7hcdQJNjQeJFA",
-        "_blank",
-        "noopener,noreferrer",
-      );
+  /** What we store with a rating: the visible exchange, never hidden upload data. */
+  function feedbackContext(idx: number) {
+    const msg = messages[idx];
+    let question: string | undefined;
+    for (let j = idx - 1; j >= 0; j--) {
+      if (messages[j].role === "user") { question = messages[j].content; break; }
     }
+    // Follow-ups inherit the type of the most recent upload in the thread.
+    let docType = msg.docType;
+    for (let j = idx; j >= 0 && !docType; j--) docType = messages[j].docType;
+    return {
+      question,
+      answer: msg.content,
+      sources: msg.citations?.slice(0, 30),
+      mode: msg.mode,
+      doc_type: docType,
+      via_web: msg.via_web,
+      run_id: msg.runId,
+    };
+  }
+
+  /** A thumbs-down only counts with a reason; "Other" alone also needs a comment. */
+  function feedbackDraftReady(d: FeedbackDraft) {
+    if (!d.reasons.length) return false;
+    const onlyOther = d.reasons.length === 1 && d.reasons[0] === "other";
+    return !onlyOther || d.comment.trim().length > 0;
+  }
+
+  async function toggleFeedback(idx: number, rating: "like" | "dislike") {
+    const msg = messages[idx];
+    if (!msg) return;
+    // Ratings are stored per student account, so ask anonymous users to sign in.
+    if (!authUser) {
+      setLoginPrompt("Sign in with Google to rate answers. It helps us improve Nana Aba.");
+      setLoginOpen(true);
+      return;
+    }
+    const id = msg.id ?? newMessageId();
+    if (!msg.id) mutateActive((prev) => prev.map((m, i) => (i !== idx ? m : { ...m, id })));
+    setFeedbackThanks(null);
+    // A new thumbs-down is saved only once a reason is sent from the picker.
+    if (rating === "dislike" && msg.feedback !== "dislike") {
+      const pickerOpen = feedbackDraft?.idx === idx && feedbackDraft.threadId === activeId;
+      setFeedbackDraft(pickerOpen ? null : { threadId: activeId, idx, reasons: [], comment: "", sending: false });
+      return;
+    }
+    setFeedbackDraft(null);
+    const previous = msg.feedback;
+    const next = previous === rating ? undefined : rating; // clicking the active thumb clears it
+    const setRating = (value: "like" | "dislike" | undefined) =>
+      mutateActive((prev) => prev.map((m, i) => (i !== idx ? m : { ...m, id, feedback: value })));
+    setRating(next);
+    try {
+      await submitMessageFeedback({ message_id: id, rating: next ?? null, ...feedbackContext(idx) });
+    } catch {
+      setRating(previous);
+      setError("Couldn't save your rating. Please try again.");
+    }
+  }
+
+  async function sendFeedbackReasons() {
+    if (!feedbackDraft || !feedbackDraftReady(feedbackDraft)) return;
+    const { threadId, idx, reasons, comment } = feedbackDraft;
+    if (threadId !== activeId) return;
+    const id = messages[idx]?.id;
+    if (!id) return;
+    setFeedbackDraft({ ...feedbackDraft, sending: true });
+    try {
+      await submitMessageFeedback({
+        message_id: id, rating: "dislike", reasons, comment: comment.trim() || undefined,
+        ...feedbackContext(idx),
+      });
+      mutateActive((prev) => prev.map((m, i) => (i !== idx ? m : { ...m, feedback: "dislike" })));
+      setFeedbackDraft(null);
+      setFeedbackThanks({ threadId, idx });
+      window.setTimeout(
+        () => setFeedbackThanks((cur) => (cur?.threadId === threadId && cur.idx === idx ? null : cur)),
+        4000,
+      );
+    } catch {
+      setFeedbackDraft((d) => (d ? { ...d, sending: false } : d));
+      setError("Couldn't send your feedback. Please try again.");
+    }
+  }
+
+  function toggleFeedbackReason(code: FeedbackReason) {
+    setFeedbackDraft((d) =>
+      d && {
+        ...d,
+        reasons: d.reasons.includes(code) ? d.reasons.filter((r) => r !== code) : [...d.reasons, code],
+      },
+    );
   }
 
   async function shareMessage(idx: number, content: string) {
@@ -646,6 +744,8 @@ export default function App() {
             role: "assistant",
             content: heading + resp.advice,
             historyContent: resp.assistant_history_content,
+            id: newMessageId(),
+            docType: resp.doc_type,
           },
         ]);
       } catch (err) {
@@ -685,7 +785,7 @@ export default function App() {
       setStreamStartedById((p) => ({ ...p, [tid]: true }));
       mutateActive((prev) => [
         ...prev,
-        { role: "assistant", content: "", citations: [], via_web: false },
+        { role: "assistant", content: "", citations: [], via_web: false, id: newMessageId(), mode },
       ]);
     };
     const patchLast = (patch: (last: ChatMsg) => ChatMsg) =>
@@ -717,6 +817,7 @@ export default function App() {
               citations: ev.citations ?? [],
               via_web: ev.via_web ?? false,
               probing: ev.probing || undefined,
+              runId: ev.retrieval_metadata?.run_id,
             }));
           }
         },
@@ -1019,15 +1120,10 @@ export default function App() {
             )}
           </div>
         )}
-        <a
-          className="feedback-cta"
-          href="https://forms.gle/QeGC7hcdQJNjQeJFA"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <button type="button" className="feedback-cta" onClick={() => setFeedbackFormOpen(true)}>
           {ICON.mail}
           <span>Send feedback</span>
-        </a>
+        </button>
         <div className="thread-list">
           {tab === "directions"
             ? [...dirThreads]
@@ -1335,7 +1431,11 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            className={`icon-btn feedback-btn ${m.feedback === "dislike" ? "active down" : ""}`}
+                            className={`icon-btn feedback-btn ${
+                              m.feedback === "dislike" || (feedbackDraft?.idx === i && feedbackDraft.threadId === activeId)
+                                ? "active down"
+                                : ""
+                            }`}
                             onClick={() => toggleFeedback(i, "dislike")}
                             title={m.feedback === "dislike" ? "Disliked" : "Bad answer"}
                             aria-label="Dislike this answer"
@@ -1365,6 +1465,52 @@ export default function App() {
                         </>
                       )}
                     </div>
+                    {feedbackDraft?.idx === i && feedbackDraft.threadId === activeId && (
+                      <div className="feedback-picker" role="group" aria-label="What went wrong?">
+                        <div className="feedback-picker-title">What went wrong? Pick at least one.</div>
+                        <div className="feedback-reasons">
+                          {FEEDBACK_REASONS.map((r) => (
+                            <button
+                              key={r.code}
+                              type="button"
+                              className={`feedback-reason ${feedbackDraft.reasons.includes(r.code) ? "active" : ""}`}
+                              aria-pressed={feedbackDraft.reasons.includes(r.code)}
+                              onClick={() => toggleFeedbackReason(r.code)}
+                            >
+                              {r.label}
+                            </button>
+                          ))}
+                        </div>
+                        <textarea
+                          className="feedback-comment"
+                          placeholder={
+                            feedbackDraft.reasons.length === 1 && feedbackDraft.reasons[0] === "other"
+                              ? "Tell us what went wrong"
+                              : "Anything else? (optional)"
+                          }
+                          maxLength={2000}
+                          rows={2}
+                          value={feedbackDraft.comment}
+                          onChange={(e) => setFeedbackDraft({ ...feedbackDraft, comment: e.target.value })}
+                        />
+                        <div className="feedback-picker-actions">
+                          <button type="button" className="pill" onClick={() => setFeedbackDraft(null)}>
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="pill primary"
+                            disabled={feedbackDraft.sending || !feedbackDraftReady(feedbackDraft)}
+                            onClick={sendFeedbackReasons}
+                          >
+                            {feedbackDraft.sending ? "Sending…" : "Send"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {feedbackThanks?.idx === i && feedbackThanks.threadId === activeId && (
+                      <div className="feedback-thanks" role="status">Thanks for the feedback.</div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1405,6 +1551,12 @@ export default function App() {
           </>
         )}
       </div>
+      {feedbackFormOpen && (
+        <FeedbackModal
+          lastAssistantMessage={[...messages].reverse().find((m) => m.role === "assistant")?.content ?? null}
+          onClose={() => setFeedbackFormOpen(false)}
+        />
+      )}
       {loginOpen && (
         <LoginCard
           prompt={loginPrompt ?? undefined}

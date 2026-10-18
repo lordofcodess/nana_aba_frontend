@@ -24,6 +24,14 @@ export type ChatMsg = {
   probing?: boolean;
   /** Local user reaction on assistant messages: "like" | "dislike" */
   feedback?: "like" | "dislike";
+  /** Stable id for assistant messages, used to store ratings. */
+  id?: string;
+  /** Server log id for the answer (links a rating to retrieval logs). */
+  runId?: string;
+  /** Set on upload replies so later ratings know which document they follow. */
+  docType?: DocType;
+  /** Chat mode the answer was generated in. */
+  mode?: ChatMode;
 };
 
 export type FeedbackPayload = {
@@ -35,6 +43,35 @@ export type FeedbackPayload = {
 
 export const submitFeedback = (body: FeedbackPayload) =>
   jpost<{ ok: true }>("/feedback", body);
+
+export type FeedbackReason =
+  | "wrong_info"
+  | "outdated"
+  | "didnt_answer"
+  | "wrong_programmes"
+  | "too_long"
+  | "other";
+
+export type MessageFeedbackPayload = {
+  message_id: string;
+  /** null removes the rating (the user un-clicked the thumb). */
+  rating: "like" | "dislike" | null;
+  reasons?: FeedbackReason[];
+  comment?: string;
+  question?: string;
+  answer?: string;
+  sources?: Citation[];
+  mode?: ChatMode;
+  doc_type?: DocType;
+  via_web?: boolean;
+  run_id?: string;
+};
+
+export const submitMessageFeedback = (body: MessageFeedbackPayload) =>
+  jpost<{ ok: true }>("/feedback/message", body);
+
+/** Id format accepted by /feedback/message. */
+export const newMessageId = () => crypto.randomUUID().replace(/-/g, "");
 
 export type Source = {
   source_file?: string | null;
@@ -175,6 +212,7 @@ export type ChatStreamEvent =
       chitchat: boolean;
       citations: Citation[];
       via_web: boolean;
+      retrieval_metadata?: { run_id?: string };
     }
   | { type: "error"; detail: string }
   | { type: "done" };

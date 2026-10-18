@@ -120,6 +120,7 @@ html, body, #root {
   font: inherit;
   font-size: 14px;
   font-weight: 600;
+  border: none;
   border-radius: 10px;
   text-decoration: none;
   cursor: pointer;
@@ -1660,3 +1661,50 @@ html, body, #root {
   from { transform: translate(-50%, 12px); opacity: 0; }
   to { transform: translate(-50%, 0); opacity: 1; }
 }
+
+/* ─── Thumbs-down reason picker ─────────────────────────────────────── */
+.feedback-picker {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  max-width: 520px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.feedback-picker-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.feedback-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.feedback-reason {
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: inherit;
+}
+.feedback-reason:hover { background: var(--accent-soft); }
+.feedback-reason.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: #6b5326;
+}
+.feedback-comment {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.feedback-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.feedback-thanks { margin-top: 4px; font-size: 12.5px; color: var(--muted); }
