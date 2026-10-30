@@ -34,3 +34,10 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Capacitor native build output
+android/app/build/
+android/.gradle/
+ios/App/Pods/
+ios/DerivedData/
+!.env.mobile

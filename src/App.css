@@ -36,7 +36,9 @@ html, body, #root {
   display: flex;
   height: 100vh;
   height: 100dvh;
-  /* viewport-fit=cover: keep content clear of the notch in landscape. */
+  /* viewport-fit=cover: keep content clear of the notch, the status bar
+     (iOS/Android app) and, in landscape, the sides. */
+  padding-top: env(safe-area-inset-top);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   width: 100vw;
@@ -121,6 +123,7 @@ html, body, #root {
 }
 .new-chat-row:hover { background: #ececec; }
 .new-chat-row svg { display: block; flex-shrink: 0; color: var(--text); }
+.app-download-row { margin-top: 0; text-decoration: none; }
 
 .feedback-cta {
   display: flex;
@@ -849,6 +852,7 @@ html, body, #root {
     bottom: 0;
     width: 82vw;
     max-width: 300px;
+    padding-top: env(safe-area-inset-top);
     z-index: 50;
     transform: translateX(-100%);
     visibility: hidden;

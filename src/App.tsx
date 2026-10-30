@@ -18,6 +18,10 @@ import VoiceMode from "./VoiceMode";
 import DirectionsTab from "./DirectionsTab";
 import LoginCard from "./LoginCard";
 import { useAuth } from "./AuthContext";
+import { isNativeApp } from "./supabaseClient";
+
+// Android test build (APK), shared from Google Drive. Hidden inside the app itself.
+const APP_DOWNLOAD_URL = "https://drive.google.com/drive/folders/161QFKJpMlc5CtNgw26XyiYfK1tH-gHte?usp=sharing";
 import { setQuotaExceededHandler } from "./api";
 import {
   emptyThread as emptyDirThread,
@@ -136,6 +140,11 @@ const ICON = {
   plus: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  ),
+  download: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
     </svg>
   ),
   panel: (
@@ -1127,6 +1136,17 @@ export default function App() {
           {ICON.newChat}
           <span>New chat</span>
         </button>
+        {!isNativeApp && (
+          <a
+            className="new-chat-row app-download-row"
+            href={APP_DOWNLOAD_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {ICON.download}
+            <span>Download the app</span>
+          </a>
+        )}
         {authConfigured && (
           <div className="sidebar-auth">
             {authUser ? (

@@ -8,9 +8,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:mobile": "tsc -b && vite build --mode mobile && cap sync"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.5.3",
     "@supabase/supabase-js": "^2.107.0",
     "@vis.gl/react-google-maps": "^1.8.3",
     "react": "^19.2.4",
@@ -19,6 +23,10 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
     "@eslint/js": "^9.39.4",
     "@testing-library/react": "^16.3.3",
     "@types/google.maps": "^3.64.0",

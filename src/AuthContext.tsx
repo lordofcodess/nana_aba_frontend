@@ -15,7 +15,14 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
-import { isSupabaseConfigured, supabase } from "./supabaseClient";
+import { App as NativeApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
+import {
+  isNativeApp,
+  isSupabaseConfigured,
+  NATIVE_AUTH_REDIRECT,
+  supabase,
+} from "./supabaseClient";
 import { setAuthToken } from "./api";
 
 type AuthCtx = {
@@ -52,14 +59,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(sess);
       setAuthToken(sess?.access_token ?? null);
     });
+    // Native app: Google sign-in finishes in the system browser, which opens
+    // com.nanaaba.app://auth-callback?code=… — swap that code for a session.
+    const deepLink = isNativeApp
+      ? NativeApp.addListener("appUrlOpen", async ({ url }) => {
+          if (!url.startsWith(NATIVE_AUTH_REDIRECT)) return;
+          const code = new URL(url).searchParams.get("code");
+          await Browser.close().catch(() => {});
+          if (code) await supabase?.auth.exchangeCodeForSession(code);
+        })
+      : null;
     return () => {
       cancelled = true;
       sub.subscription.unsubscribe();
+      deepLink?.then((handle) => handle.remove());
     };
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
     if (!supabase) throw new Error("Supabase is not configured");
+    if (isNativeApp) {
+      // Google refuses sign-in inside embedded web views, so open the system browser.
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: NATIVE_AUTH_REDIRECT, skipBrowserRedirect: true },
+      });
+      if (error) throw error;
+      await Browser.open({ url: data.url, presentationStyle: "popover" });
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
