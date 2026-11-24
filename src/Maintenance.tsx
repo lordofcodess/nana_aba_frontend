@@ -3,9 +3,23 @@
 export default function Maintenance() {
   return (
     <main className="maintenance">
-      <img src="/logo.png" alt="" className="maintenance-logo" />
-      <h1>Nana Aba AI is under maintenance</h1>
-      <p>We're making some improvements and will be back shortly. Thank you for your patience.</p>
+      <div className="maintenance-card">
+        <div className="maintenance-logo-ring">
+          <img src="/logo.png" alt="Nana Aba AI" className="maintenance-logo" />
+        </div>
+        <span className="maintenance-status">
+          <span className="maintenance-dot" aria-hidden="true" />
+          Under maintenance
+        </span>
+        <h1>
+          <span className="maintenance-brand">Nana Aba AI</span> will be back soon
+        </h1>
+        <p>
+          We're making some improvements to serve you better. Please check back shortly.
+          Thank you for your patience.
+        </p>
+      </div>
+      <footer className="maintenance-footer">University of Ghana · Nana Aba AI</footer>
     </main>
   );
 }

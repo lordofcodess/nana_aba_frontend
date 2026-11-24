@@ -1,5 +1,15 @@
-/* Plain sizing so it never depends on the app's styles. */
+/* Maintenance notice. Self-contained: it does not rely on the app's styles. */
 .maintenance {
+  --m-bg: #ffffff;
+  --m-text: #1a1a1a;
+  --m-muted: #5f6368;
+  --m-navy: #1e2d5a;
+  --m-gold: #b89559;
+  --m-glow-gold: rgba(184, 149, 89, 0.16);
+  --m-glow-navy: rgba(30, 45, 90, 0.10);
+  --m-pill-bg: rgba(184, 149, 89, 0.12);
+  --m-pill-text: #7a5f2f;
+
   box-sizing: border-box;
   width: 100%;
   min-height: 100vh;
@@ -8,36 +18,124 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
-  background: #ffffff;
-  color: #1a1a1a;
+  padding: max(32px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  background:
+    radial-gradient(ellipse 60% 45% at 50% 30%, var(--m-glow-gold), transparent 70%),
+    radial-gradient(ellipse 70% 50% at 50% 85%, var(--m-glow-navy), transparent 70%),
+    var(--m-bg);
+  color: var(--m-text);
   text-align: center;
   font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  .maintenance {
+    --m-bg: #12151d;
+    --m-text: #f1f1f1;
+    --m-muted: #a4a9b4;
+    --m-navy: #c9d3f0;
+    --m-glow-gold: rgba(184, 149, 89, 0.14);
+    --m-glow-navy: rgba(90, 120, 200, 0.12);
+    --m-pill-bg: rgba(184, 149, 89, 0.18);
+    --m-pill-text: #e2c48f;
+  }
+}
+
+.maintenance-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  max-width: 540px;
+  animation: maintenance-in 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.maintenance-logo-ring {
+  padding: 4px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--m-gold), var(--m-navy));
+  box-shadow: 0 10px 30px rgba(30, 45, 90, 0.18);
+  margin-bottom: 4px;
 }
 
 .maintenance-logo {
-  width: 96px;
-  height: 96px;
+  display: block;
+  width: 104px;
+  height: 104px;
   border-radius: 50%;
   object-fit: cover;
   object-position: top;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  margin-bottom: 8px;
+  border: 3px solid var(--m-bg);
+  background: var(--m-bg);
+}
+
+.maintenance-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--m-pill-bg);
+  color: var(--m-pill-text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.maintenance-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--m-gold);
+  animation: maintenance-pulse 1.8s ease-in-out infinite;
 }
 
 .maintenance h1 {
   margin: 0;
-  font-size: clamp(20px, 5.5vw, 26px);
-  font-weight: 600;
-  max-width: 420px;
-  color: #1e2d5a;
+  font-size: clamp(26px, 6.5vw, 36px);
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--m-text);
+  text-wrap: balance;
+}
+
+.maintenance-brand {
+  background: linear-gradient(90deg, var(--m-navy), var(--m-gold));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .maintenance p {
   margin: 0;
-  max-width: 420px;
+  max-width: 440px;
   font-size: 16px;
-  line-height: 1.5;
-  color: #555;
+  line-height: 1.6;
+  color: var(--m-muted);
+  text-wrap: pretty;
+}
+
+.maintenance-footer {
+  margin-top: 32px;
+  font-size: 12px;
+  color: var(--m-muted);
+  opacity: 0.8;
+}
+
+@keyframes maintenance-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes maintenance-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maintenance-card, .maintenance-dot { animation: none; }
 }
