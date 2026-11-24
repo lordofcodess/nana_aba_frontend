@@ -1,0 +1,43 @@
+/* Plain sizing so it never depends on the app's styles. */
+.maintenance {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  background: #ffffff;
+  color: #1a1a1a;
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+}
+
+.maintenance-logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  margin-bottom: 8px;
+}
+
+.maintenance h1 {
+  margin: 0;
+  font-size: clamp(20px, 5.5vw, 26px);
+  font-weight: 600;
+  max-width: 420px;
+  color: #1e2d5a;
+}
+
+.maintenance p {
+  margin: 0;
+  max-width: 420px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #555;
+}
